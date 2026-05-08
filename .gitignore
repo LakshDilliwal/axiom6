@@ -3,5 +3,5 @@ target/
 node_modules/
 .env
 .env.local
-**/*.env
 test-ledger/
+**/*keypair*.json
