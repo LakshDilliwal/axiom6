@@ -11,6 +11,10 @@ export const USDC_MINT = new PublicKey(
 
 export const NETWORK = "devnet";
 export const RPC_URL = "https://api.devnet.solana.com";
-
-// Alias used by layout.tsx
 export const DEVNET_RPC_URL = RPC_URL;
+
+// Registry PDA — seeds: ["registry"]
+export const [REGISTRY_PDA] = PublicKey.findProgramAddressSync(
+  [Buffer.from("registry")],
+  PROGRAM_ID
+);

@@ -1,93 +1,44 @@
-import {
-  Connection,
-  PublicKey,
-  Transaction,
-  SystemProgram,
-  SYSVAR_RENT_PUBKEY,
-} from "@solana/web3.js";
+import { Connection, PublicKey, Transaction, SystemProgram } from "@solana/web3.js";
 import {
   getAssociatedTokenAddress,
   createAssociatedTokenAccountInstruction,
   TOKEN_PROGRAM_ID,
   ASSOCIATED_TOKEN_PROGRAM_ID,
 } from "@solana/spl-token";
-import { Program, AnchorProvider, BN } from "@coral-xyz/anchor";
-import { PROGRAM_ID, USDC_MINT, RPC_URL } from "./constants";
+import { BN } from "@coral-xyz/anchor";
+import { PROGRAM_ID, USDC_MINT, REGISTRY_PDA } from "./constants";
+import { getProgram } from "./anchorClient";
 
-export type StakeResult =
+export type TxResult =
   | { ok: true; signature: string }
   | { ok: false; error: string };
 
-async function loadProgram(connection: Connection, wallet: any) {
-  const idl = await import("../idl/axiom6.json");
-  const provider = new AnchorProvider(connection, wallet, { commitment: "confirmed" });
-  return new Program(idl as any, provider);
-}
-
 /**
- * Step 1 — Initialize the vault PDA + its USDC ATA if not yet on-chain.
- * Safe to call multiple times — skips if already initialized.
+ * Derive agent_state PDA — seeds: ["agent", agent_pubkey]
  */
-async function ensureVaultInitialized(
-  connection: Connection,
-  program: Program<any>,
-  vaultPda: PublicKey,
-  vaultUsdc: PublicKey,
-  agentKey: PublicKey,
-  wallet: { publicKey: PublicKey; signTransaction: (tx: Transaction) => Promise<Transaction> }
-) {
-  const vaultInfo = await connection.getAccountInfo(vaultPda);
-  const vaultUsdcInfo = await connection.getAccountInfo(vaultUsdc);
-
-  // Both already exist — nothing to do
-  if (vaultInfo && vaultUsdcInfo) return;
-
-  const tx = new Transaction();
-
-  // Init vault PDA if needed
-  if (!vaultInfo) {
-    const initIx = await (program.methods as any)
-      .initializeVault()
-      .accounts({
-        vault: vaultPda,
-        agent: agentKey,
-        payer: wallet.publicKey,
-        systemProgram: SystemProgram.programId,
-        rent: SYSVAR_RENT_PUBKEY,
-      })
-      .instruction();
-    tx.add(initIx);
-  }
-
-  // Create vault USDC ATA if needed
-  if (!vaultUsdcInfo) {
-    tx.add(
-      createAssociatedTokenAccountInstruction(
-        wallet.publicKey,
-        vaultUsdc,
-        vaultPda,
-        USDC_MINT,
-        TOKEN_PROGRAM_ID,
-        ASSOCIATED_TOKEN_PROGRAM_ID
-      )
-    );
-  }
-
-  if (tx.instructions.length === 0) return;
-
-  const { blockhash } = await connection.getLatestBlockhash();
-  tx.recentBlockhash = blockhash;
-  tx.feePayer = wallet.publicKey;
-
-  const signed = await wallet.signTransaction(tx);
-  const sig = await connection.sendRawTransaction(signed.serialize());
-  await connection.confirmTransaction(sig, "confirmed");
-  console.log("[axiom6] vault initialized:", sig);
+export function deriveAgentState(agentPubkey: PublicKey): PublicKey {
+  const [pda] = PublicKey.findProgramAddressSync(
+    [Buffer.from("agent"), agentPubkey.toBuffer()],
+    PROGRAM_ID
+  );
+  return pda;
 }
 
 /**
- * Main stake function.
- * Automatically initializes vault + ATA on first call.
+ * Derive staker_receipt PDA — seeds: ["receipt", agent_pubkey, staker]
+ */
+export function deriveStakerReceipt(agentPubkey: PublicKey, staker: PublicKey): PublicKey {
+  const [pda] = PublicKey.findProgramAddressSync(
+    [Buffer.from("receipt"), agentPubkey.toBuffer(), staker.toBuffer()],
+    PROGRAM_ID
+  );
+  return pda;
+}
+
+/**
+ * Stake USDC into an agent vault.
+ * agentPubkey — the agent's actual keypair pubkey (full base58, stored in AgentState)
+ * amountUsdc  — human amount e.g. 100 = 100 USDC
  */
 export async function stakeUsdc(
   agentPubkey: string,
@@ -96,58 +47,54 @@ export async function stakeUsdc(
     publicKey: PublicKey;
     signTransaction: (tx: Transaction) => Promise<Transaction>;
   }
-): Promise<StakeResult> {
+): Promise<TxResult> {
   try {
-    const connection = new Connection(RPC_URL, "confirmed");
     const agentKey = new PublicKey(agentPubkey);
-    const user = wallet.publicKey;
+    const staker = wallet.publicKey;
+    const { program, connection } = await getProgram(wallet);
 
-    // Derive PDAs
-    const [vaultPda] = PublicKey.findProgramAddressSync(
-      [Buffer.from("vault"), agentKey.toBuffer()],
-      PROGRAM_ID
-    );
-    const [stakerReceipt] = PublicKey.findProgramAddressSync(
-      [Buffer.from("staker"), vaultPda.toBuffer(), user.toBuffer()],
-      PROGRAM_ID
-    );
+    const agentState = deriveAgentState(agentKey);
+    const stakerReceipt = deriveStakerReceipt(agentKey, staker);
 
-    // Token accounts
-    const userUsdc = await getAssociatedTokenAddress(USDC_MINT, user);
-    const vaultUsdc = await getAssociatedTokenAddress(USDC_MINT, vaultPda, true);
+    // Fetch agentState to get the vault_usdc_ata stored on-chain
+    const agentStateData = await (program.account as any).agentState.fetch(agentState);
+    const vaultUsdcAta = agentStateData.vaultUsdcAta as PublicKey;
 
-    const program = await loadProgram(connection, wallet);
+    // Staker's own USDC ATA
+    const stakerUsdcAta = await getAssociatedTokenAddress(USDC_MINT, staker);
 
-    // Auto-init vault + ATA if needed (sends separate tx)
-    await ensureVaultInitialized(
-      connection, program, vaultPda, vaultUsdc, agentKey, wallet
-    );
-
-    // Build stake tx
+    // Create staker USDC ATA if missing
     const tx = new Transaction();
-    const lamports = new BN(Math.floor(amountUsdc * 1_000_000));
+    const stakerAtaInfo = await connection.getAccountInfo(stakerUsdcAta);
+    if (!stakerAtaInfo) {
+      tx.add(
+        createAssociatedTokenAccountInstruction(
+          staker, stakerUsdcAta, staker, USDC_MINT,
+          TOKEN_PROGRAM_ID, ASSOCIATED_TOKEN_PROGRAM_ID
+        )
+      );
+    }
 
-    const stakeIx = await (program.methods as any)
-      .stake(lamports)
+    const amount = new BN(Math.floor(amountUsdc * 1_000_000));
+
+    const ix = await (program.methods as any)
+      .stakeUsdc(amount)
       .accounts({
-        vault: vaultPda,
+        registry: REGISTRY_PDA,
+        agentState,
         stakerReceipt,
-        userUsdc,
-        vaultUsdc,
-        usdcMint: USDC_MINT,
-        user,
+        staker,
+        stakerUsdcAta,
+        vaultUsdcAta,
         tokenProgram: TOKEN_PROGRAM_ID,
-        associatedTokenProgram: ASSOCIATED_TOKEN_PROGRAM_ID,
         systemProgram: SystemProgram.programId,
-        rent: SYSVAR_RENT_PUBKEY,
       })
       .instruction();
 
-    tx.add(stakeIx);
-
+    tx.add(ix);
     const { blockhash } = await connection.getLatestBlockhash();
     tx.recentBlockhash = blockhash;
-    tx.feePayer = user;
+    tx.feePayer = staker;
 
     const signed = await wallet.signTransaction(tx);
     const signature = await connection.sendRawTransaction(signed.serialize());
@@ -155,7 +102,7 @@ export async function stakeUsdc(
 
     return { ok: true, signature };
   } catch (err: any) {
-    console.error("[stakeUsdc] error:", err);
-    return { ok: false, error: err?.message ?? "Unknown error" };
+    console.error("[stakeUsdc]", err);
+    return { ok: false, error: err?.message ?? String(err) };
   }
 }
