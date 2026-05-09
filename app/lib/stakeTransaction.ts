@@ -18,11 +18,76 @@ export type StakeResult =
   | { ok: true; signature: string }
   | { ok: false; error: string };
 
+async function loadProgram(connection: Connection, wallet: any) {
+  const idl = await import("../idl/axiom6.json");
+  const provider = new AnchorProvider(connection, wallet, { commitment: "confirmed" });
+  return new Program(idl as any, provider);
+}
+
 /**
- * Build + send a stake transaction via Anchor CPI.
- * agentPubkey  — the agent's vault authority pubkey (from URL)
- * amountUsdc   — human-readable USDC amount (e.g. 100 = 100 USDC)
- * wallet       — connected wallet adapter
+ * Step 1 — Initialize the vault PDA + its USDC ATA if not yet on-chain.
+ * Safe to call multiple times — skips if already initialized.
+ */
+async function ensureVaultInitialized(
+  connection: Connection,
+  program: Program<any>,
+  vaultPda: PublicKey,
+  vaultUsdc: PublicKey,
+  agentKey: PublicKey,
+  wallet: { publicKey: PublicKey; signTransaction: (tx: Transaction) => Promise<Transaction> }
+) {
+  const vaultInfo = await connection.getAccountInfo(vaultPda);
+  const vaultUsdcInfo = await connection.getAccountInfo(vaultUsdc);
+
+  // Both already exist — nothing to do
+  if (vaultInfo && vaultUsdcInfo) return;
+
+  const tx = new Transaction();
+
+  // Init vault PDA if needed
+  if (!vaultInfo) {
+    const initIx = await (program.methods as any)
+      .initializeVault()
+      .accounts({
+        vault: vaultPda,
+        agent: agentKey,
+        payer: wallet.publicKey,
+        systemProgram: SystemProgram.programId,
+        rent: SYSVAR_RENT_PUBKEY,
+      })
+      .instruction();
+    tx.add(initIx);
+  }
+
+  // Create vault USDC ATA if needed
+  if (!vaultUsdcInfo) {
+    tx.add(
+      createAssociatedTokenAccountInstruction(
+        wallet.publicKey,
+        vaultUsdc,
+        vaultPda,
+        USDC_MINT,
+        TOKEN_PROGRAM_ID,
+        ASSOCIATED_TOKEN_PROGRAM_ID
+      )
+    );
+  }
+
+  if (tx.instructions.length === 0) return;
+
+  const { blockhash } = await connection.getLatestBlockhash();
+  tx.recentBlockhash = blockhash;
+  tx.feePayer = wallet.publicKey;
+
+  const signed = await wallet.signTransaction(tx);
+  const sig = await connection.sendRawTransaction(signed.serialize());
+  await connection.confirmTransaction(sig, "confirmed");
+  console.log("[axiom6] vault initialized:", sig);
+}
+
+/**
+ * Main stake function.
+ * Automatically initializes vault + ATA on first call.
  */
 export async function stakeUsdc(
   agentPubkey: string,
@@ -37,7 +102,7 @@ export async function stakeUsdc(
     const agentKey = new PublicKey(agentPubkey);
     const user = wallet.publicKey;
 
-    // --- Derive PDAs ---
+    // Derive PDAs
     const [vaultPda] = PublicKey.findProgramAddressSync(
       [Buffer.from("vault"), agentKey.toBuffer()],
       PROGRAM_ID
@@ -47,31 +112,19 @@ export async function stakeUsdc(
       PROGRAM_ID
     );
 
-    // --- Token accounts ---
+    // Token accounts
     const userUsdc = await getAssociatedTokenAddress(USDC_MINT, user);
     const vaultUsdc = await getAssociatedTokenAddress(USDC_MINT, vaultPda, true);
 
+    const program = await loadProgram(connection, wallet);
+
+    // Auto-init vault + ATA if needed (sends separate tx)
+    await ensureVaultInitialized(
+      connection, program, vaultPda, vaultUsdc, agentKey, wallet
+    );
+
+    // Build stake tx
     const tx = new Transaction();
-
-    // Create vault USDC ATA if needed
-    const vaultUsdcInfo = await connection.getAccountInfo(vaultUsdc);
-    if (!vaultUsdcInfo) {
-      tx.add(
-        createAssociatedTokenAccountInstruction(
-          user, vaultUsdc, vaultPda, USDC_MINT,
-          TOKEN_PROGRAM_ID, ASSOCIATED_TOKEN_PROGRAM_ID
-        )
-      );
-    }
-
-    // --- Load IDL dynamically ---
-    const idl = await import("../idl/axiom6.json");
-    const provider = new AnchorProvider(connection, wallet as any, {
-      commitment: "confirmed",
-    });
-    const program = new Program(idl as any, provider);
-
-    // Amount in USDC base units (6 decimals)
     const lamports = new BN(Math.floor(amountUsdc * 1_000_000));
 
     const stakeIx = await (program.methods as any)
