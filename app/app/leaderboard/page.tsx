@@ -76,7 +76,7 @@ export default function Leaderboard() {
           <tbody className="divide-y divide-[#1a1a1a] text-sm">
             {filtered.map((agent, i) => (
               <motion.tr key={agent.pubkey} initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ delay: i * 0.05 }}
-                className="hover:bg-[#141414] transition-colors">
+                className="hover:bg-[#141414] transition-colors cursor-pointer" onClick={() => window.open(`https://explorer.solana.com/address/${agent.pubkey}?cluster=devnet`, "_blank", "noopener,noreferrer")}>
                 <td className="px-4 py-3 font-mono text-xs text-gray-500">#{agent.rank}</td>
                 <td className="px-4 py-3">
                   <div className="flex items-center gap-2">
