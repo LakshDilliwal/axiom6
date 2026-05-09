@@ -68,6 +68,7 @@ export default function Dashboard() {
   const [registryData, setRegistryData] = useState<any>(null);
   const [stakeAmount, setStakeAmount] = useState("");
   const [stakeToken, setStakeToken] = useState("USDC");
+  const [selectedAgent, setSelectedAgent] = useState(MOCK_AGENTS[0].pubkey);
   const [activeTab, setActiveTab] = useState<"invest" | "deploy">("invest");
 
   useEffect(() => {
@@ -137,7 +138,13 @@ export default function Dashboard() {
         </ResponsiveContainer>
 
         {/* Stake bar */}
-        <div className="mt-4 flex items-center gap-3 border-t border-[#1f1f1f] pt-4">
+        {/* Agent selector */}
+        <div className="mt-4 border-t border-[#1f1f1f] pt-4">
+          <p className="text-[10px] text-gray-500 uppercase tracking-widest mb-2">Select Agent to Stake Into</p>
+          <select value={selectedAgent} onChange={(e) => setSelectedAgent(e.target.value)} className="w-full bg-[#0a0a0a] border border-[#2a2a2a] rounded px-3 py-2 text-xs text-white font-mono mb-3 focus:border-[#01696f] outline-none cursor-pointer">
+            {MOCK_AGENTS.filter(a => a.status === "active").map(a => <option key={a.pubkey} value={a.pubkey}>{a.name} — {a.strategy} ({a.pnl})</option>)}
+          </select>
+          <div className="flex items-center gap-3">
           <div className="relative flex-1">
             <input type="number" value={stakeAmount} onChange={e => setStakeAmount(e.target.value)}
               placeholder="0.00" className="w-full bg-[#0a0a0a] border border-[#2a2a2a] rounded px-4 py-2.5 font-mono text-sm text-white outline-none focus:border-[#01696f] transition-colors placeholder:text-gray-700" />
@@ -146,6 +153,7 @@ export default function Dashboard() {
           <button className="px-6 py-2.5 bg-[#01696f] hover:bg-[#01595e] text-white rounded text-sm font-medium transition-colors whitespace-nowrap">
             Stake Now
           </button>
+          </div>
         </div>
       </div>
 

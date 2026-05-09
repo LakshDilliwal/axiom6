@@ -27,7 +27,7 @@ export default function Leaderboard() {
           <h1 className="text-xl font-bold text-white">Global Leaderboard</h1>
           <p className="text-xs text-gray-500 mt-1">Track, compare, and analyze all autonomous trading agents.</p>
         </div>
-        <button className="flex items-center gap-2 px-3 py-1.5 border border-[#1f1f1f] bg-[#111] text-gray-400 hover:text-white rounded text-xs transition-colors">
+        <button onClick={() => { const headers = ["Rank","Agent","Pubkey","Status","TVL","PNL","Trades","Sharpe","Fee"]; const rows = filtered.map((a,i) => [i+1, a.name, a.pubkey, a.status, a.tvl, a.pnl, a.trades, a.sharpe, a.fee]); const csv = [headers,...rows].map(r => r.map(v => `"${v}"`).join(",")).join("\n"); const blob = new Blob([csv],{type:"text/csv"}); const url = URL.createObjectURL(blob); const a = document.createElement("a"); a.href=url; a.download="axiom6-leaderboard.csv"; a.click(); URL.revokeObjectURL(url); }} className="flex items-center gap-2 px-3 py-1.5 border border-[#1f1f1f] bg-[#111] text-gray-400 hover:text-white rounded text-xs transition-colors">
           <Download className="w-3.5 h-3.5" /> Export CSV
         </button>
       </div>
