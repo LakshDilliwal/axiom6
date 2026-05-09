@@ -3,7 +3,7 @@ use anchor_lang::prelude::*;
 #[account]
 pub struct Registry {
     pub authority: Pubkey,
-    pub protocol_fee_bps: u16, // 200
+    pub protocol_fee_bps: u16,
     pub total_agents: u64,
     pub total_tvl: u64,
     pub treasury: Pubkey,
@@ -25,19 +25,21 @@ pub struct AgentState {
     pub developer: Pubkey,
     pub agent_pubkey: Pubkey,
     pub vault_usdc_ata: Pubkey,
-    pub performance_fee_bps: u16, // capped at 3000
+    pub performance_fee_bps: u16,
     pub total_shares: u64,
     pub assets_per_share: u64,
     pub high_water_mark: u64,
     pub epoch_start: i64,
-    pub epoch_duration: i64, // 86400
+    pub epoch_duration: i64,
     pub status: AgentStatus,
     pub whitelisted_mints: Vec<Pubkey>,
+    pub cumulative_pnl: i64,
+    pub total_trades: u64,
     pub bump: u8,
 }
 impl AgentState {
     pub fn size(mints_len: usize) -> usize {
-        8 + 32 + 32 + 32 + 2 + 8 + 8 + 8 + 8 + 8 + 1 + (4 + mints_len * 32) + 1
+        8 + 32 + 32 + 32 + 2 + 8 + 8 + 8 + 8 + 8 + 1 + (4 + mints_len * 32) + 8 + 8 + 1
     }
 }
 

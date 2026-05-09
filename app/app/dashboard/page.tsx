@@ -1,33 +1,36 @@
 "use client";
 import { useEffect, useState } from "react";
 import { useAnchorWallet, useConnection } from "@solana/wallet-adapter-react";
-import { AnchorProvider } from "@coral-xyz/anchor";
+import { AnchorProvider, BN } from "@coral-xyz/anchor";
+import { PublicKey, SystemProgram } from "@solana/web3.js";
+import { getAssociatedTokenAddress, TOKEN_PROGRAM_ID } from "@solana/spl-token";
 import { getAxiom6Program, getRegistryPDA } from "../../lib/axiom6";
 import Link from "next/link";
 import { AreaChart, Area, XAxis, YAxis, Tooltip, ResponsiveContainer } from "recharts";
 import { motion } from "framer-motion";
-import { Download } from "lucide-react";
+
+const USDC_MINT = new PublicKey("4zMMC9srt5Ri5X14GAgXhaHii3GnPAEERYPJgZJDncDU");
 
 const MOCK_AGENTS = [
-  { pubkey: "NexusAlph...1111", name: "Nexus Alpha", strategy: "Momentum Scalper", aum: "$2.45M", pnl: "+12.4%", winRate: 78, trades: 1247, status: "active", pnlPositive: true },
-  { pubkey: "QuantPrim...2222", name: "Quant Prime", strategy: "Mean Reversion", aum: "$1.89M", pnl: "+8.7%", winRate: 72, trades: 983, status: "active", pnlPositive: true },
-  { pubkey: "SigmaFlow...3333", name: "Sigma Flow", strategy: "Arbitrage Hunter", aum: "$1.65M", pnl: "+6.2%", winRate: 81, trades: 2104, status: "active", pnlPositive: true },
-  { pubkey: "DeltaNeur...4444", name: "Delta Neural", strategy: "ML Trend Follow", aum: "$1.42M", pnl: "-2.1%", winRate: 65, trades: 756, status: "active", pnlPositive: false },
-  { pubkey: "OmegaGrid...555", name: "Omega Grid", strategy: "Grid Trading", aum: "$1.28M", pnl: "+4.8%", winRate: 69, trades: 1893, status: "active", pnlPositive: true },
-  { pubkey: "ZetaPuls...6666", name: "Zeta Pulse", strategy: "Sentiment Analysis", aum: "$0.98M", pnl: "-0.9%", winRate: 62, trades: 421, status: "active", pnlPositive: false },
-  { pubkey: "ThetaSwrm...777", name: "Theta Swarm", strategy: "Multi-DEX Arb", aum: "$0.75M", pnl: "+3.1%", winRate: 74, trades: 3219, status: "active", pnlPositive: true },
-  { pubkey: "KappaDrft...888", name: "Kappa Drift", strategy: "Funding Rate", aum: "$0.43M", pnl: "-4.3%", winRate: 58, trades: 189, status: "paused", pnlPositive: false },
+  { pubkey: "NexusAlph1111", agentKey: "11111111111111111111111111111111", name: "Nexus Alpha",    strategy: "Momentum Scalper",   aum: "$2.45M", pnl: "+12.4%", winRate: 78, trades: 1247, status: "active",  pnlPositive: true },
+  { pubkey: "QuantPrim2222", agentKey: "22222222222222222222222222222222", name: "Quant Prime",    strategy: "Mean Reversion",      aum: "$1.89M", pnl: "+8.7%",  winRate: 72, trades: 983,  status: "active",  pnlPositive: true },
+  { pubkey: "SigmaFlow3333", agentKey: "33333333333333333333333333333333", name: "Sigma Flow",    strategy: "Arbitrage Hunter",    aum: "$1.65M", pnl: "+6.2%",  winRate: 81, trades: 2104, status: "active",  pnlPositive: true },
+  { pubkey: "DeltaNeur4444", agentKey: "44444444444444444444444444444444", name: "Delta Neural",  strategy: "ML Trend Follow",     aum: "$1.42M", pnl: "-2.1%",  winRate: 65, trades: 756,  status: "active",  pnlPositive: false },
+  { pubkey: "OmegaGrid5555", agentKey: "55555555555555555555555555555555", name: "Omega Grid",    strategy: "Grid Trading",        aum: "$1.28M", pnl: "+4.8%",  winRate: 69, trades: 1893, status: "active",  pnlPositive: true },
+  { pubkey: "ZetaPuls6666",  agentKey: "66666666666666666666666666666666", name: "Zeta Pulse",    strategy: "Sentiment Analysis",  aum: "$0.98M", pnl: "-0.9%",  winRate: 62, trades: 421,  status: "active",  pnlPositive: false },
+  { pubkey: "ThetaSwrm7777", agentKey: "77777777777777777777777777777777", name: "Theta Swarm",   strategy: "Multi-DEX Arb",       aum: "$0.75M", pnl: "+3.1%",  winRate: 74, trades: 3219, status: "active",  pnlPositive: true },
+  { pubkey: "KappaDrft8888", agentKey: "88888888888888888888888888888888", name: "Kappa Drift",   strategy: "Funding Rate",        aum: "$0.43M", pnl: "-4.3%",  winRate: 58, trades: 189,  status: "paused",  pnlPositive: false },
 ];
 
 const MOCK_TRADES = [
-  { side: "BUY", agent: "Theta Swarm", pair: "ORCA/USDC", amount: "$49,710.72", time: "just now" },
-  { side: "SELL", agent: "Omega Grid", pair: "SOL/USDC", amount: "$41,709.69", time: "34s ago" },
-  { side: "SELL", agent: "Nexus Alpha", pair: "ORCA/USDC", amount: "$79,744.02", time: "4m ago" },
-  { side: "BUY", agent: "Zeta Pulse", pair: "MNDE/USDC", amount: "$37,649.53", time: "9m ago" },
-  { side: "BUY", agent: "Sigma Flow", pair: "JTO/USDC", amount: "$4,755", time: "12m ago" },
-  { side: "BUY", agent: "Zeta Pulse", pair: "BONK/USDC", amount: "$4,772.71", time: "17m ago" },
-  { side: "BUY", agent: "Theta Swarm", pair: "JTO/USDC", amount: "$10,497.19", time: "19m ago" },
-  { side: "SELL", agent: "Delta Neural", pair: "SOL/USDC", amount: "$21,086.63", time: "43m ago" },
+  { side: "BUY",  agent: "Theta Swarm",  pair: "ORCA/USDC",  amount: "$49,710", time: "just now" },
+  { side: "SELL", agent: "Omega Grid",   pair: "SOL/USDC",   amount: "$41,709", time: "34s ago" },
+  { side: "SELL", agent: "Nexus Alpha",  pair: "ORCA/USDC",  amount: "$79,744", time: "4m ago" },
+  { side: "BUY",  agent: "Zeta Pulse",   pair: "MNDE/USDC",  amount: "$37,649", time: "9m ago" },
+  { side: "BUY",  agent: "Sigma Flow",   pair: "JTO/USDC",   amount: "$4,755",  time: "12m ago" },
+  { side: "BUY",  agent: "Zeta Pulse",   pair: "BONK/USDC",  amount: "$4,772",  time: "17m ago" },
+  { side: "BUY",  agent: "Theta Swarm",  pair: "JTO/USDC",   amount: "$10,497", time: "19m ago" },
+  { side: "SELL", agent: "Delta Neural", pair: "SOL/USDC",   amount: "$21,086", time: "43m ago" },
 ];
 
 function generateTVLData() {
@@ -39,15 +42,11 @@ function generateTVLData() {
     d.setDate(start.getDate() + i);
     tvl += (Math.random() - 0.3) * 400000;
     tvl = Math.max(tvl, 3000000);
-    data.push({
-      date: d.toLocaleDateString("en-US", { month: "short", day: "numeric" }),
-      tvl: Math.round(tvl),
-    });
+    data.push({ date: d.toLocaleDateString("en-US", { month: "short", day: "numeric" }), tvl: Math.round(tvl) });
   }
   data[data.length - 1].tvl = 12068345;
   return data;
 }
-
 const tvlData = generateTVLData();
 
 const CustomTooltip = ({ active, payload }: any) => {
@@ -70,11 +69,14 @@ export default function Dashboard() {
   const [stakeToken, setStakeToken] = useState("USDC");
   const [selectedAgent, setSelectedAgent] = useState(MOCK_AGENTS[0].pubkey);
   const [activeTab, setActiveTab] = useState<"invest" | "deploy">("invest");
+  const [staking, setStaking] = useState(false);
+  const [stakeMsg, setStakeMsg] = useState("");
 
   useEffect(() => {
     async function fetchStats() {
+      if (!wallet) return;
       try {
-        const provider = new AnchorProvider(connection, wallet || ({} as any), { commitment: "confirmed" });
+        const provider = new AnchorProvider(connection, wallet, { commitment: "confirmed" });
         const program = getAxiom6Program(provider);
         const [registryPDA] = getRegistryPDA();
         const registry = await (program.account as any).registry.fetch(registryPDA);
@@ -86,7 +88,60 @@ export default function Dashboard() {
 
   const totalTvl = registryData ? registryData.totalTvl.toNumber() / 1e6 : 12847392;
   const activeAgents = registryData ? registryData.totalAgents.toNumber() : 24;
-  const protocolFee = registryData ? (registryData.protocolFeeBps / 100).toFixed(2) : "2.00";
+
+  const handleStake = async () => {
+    if (!wallet) { setStakeMsg("Connect wallet first."); return; }
+    const amt = parseFloat(stakeAmount);
+    if (!amt || amt <= 0) { setStakeMsg("Enter a valid amount."); return; }
+    if (stakeToken !== "USDC") { setStakeMsg("Only USDC staking is live on devnet right now."); return; }
+
+    try {
+      setStaking(true);
+      setStakeMsg("Waiting for confirmation...");
+
+      const provider = new AnchorProvider(connection, wallet, { commitment: "confirmed" });
+      const program = getAxiom6Program(provider);
+      const [registryPDA] = getRegistryPDA();
+
+      // Use the agentKey for the selected mock agent as the agent_pubkey
+      const agentObj = MOCK_AGENTS.find(a => a.pubkey === selectedAgent)!;
+      const agentPubkey = new PublicKey(agentObj.agentKey);
+
+      const [agentStatePDA] = PublicKey.findProgramAddressSync(
+        [Buffer.from("agent"), agentPubkey.toBuffer()],
+        program.programId
+      );
+
+      const stakerAta = await getAssociatedTokenAddress(USDC_MINT, wallet.publicKey);
+      const vaultAta = await getAssociatedTokenAddress(USDC_MINT, agentStatePDA, true);
+      const [receiptPDA] = PublicKey.findProgramAddressSync(
+        [Buffer.from("receipt"), agentPubkey.toBuffer(), wallet.publicKey.toBuffer()],
+        program.programId
+      );
+
+      const lamports = Math.round(amt * 1_000_000);
+      await (program.methods as any)
+        .stakeUsdc(new BN(lamports))
+        .accounts({
+          registry: registryPDA,
+          agentState: agentStatePDA,
+          stakerReceipt: receiptPDA,
+          staker: wallet.publicKey,
+          stakerUsdcAta: stakerAta,
+          vaultUsdcAta: vaultAta,
+          tokenProgram: TOKEN_PROGRAM_ID,
+          systemProgram: SystemProgram.programId,
+        })
+        .rpc();
+
+      setStakeMsg(`✓ Staked ${amt} USDC into ${agentObj.name}`);
+      setStakeAmount("");
+    } catch (err: any) {
+      setStakeMsg(`Error: ${err?.message?.slice(0, 80) || "Unknown"}`);
+    } finally {
+      setStaking(false);
+    }
+  };
 
   return (
     <div className="space-y-6 pb-12">
@@ -96,14 +151,14 @@ export default function Dashboard() {
           <h1 className="text-xl font-bold text-white tracking-tight">Dashboard</h1>
         </div>
         <div className="flex gap-2">
-          <button onClick={() => setActiveTab("invest")}
-            className={`px-4 py-1.5 rounded text-sm font-sans transition-colors border ${activeTab === "invest" ? "bg-[#01696f]/10 border-[#01696f]/40 text-[#01696f]" : "border-[#1f1f1f] text-gray-400 hover:text-white bg-[#111]"}`}>
-            Invest
-          </button>
-          <Link href="/register"
-            className={`px-4 py-1.5 rounded text-sm font-sans transition-colors border ${activeTab === "deploy" ? "bg-[#01696f]/10 border-[#01696f]/40 text-[#01696f]" : "border-[#1f1f1f] text-gray-400 hover:text-white bg-[#111]"}`}>
-            Deploy Agent
-          </Link>
+          <button
+            onClick={() => setActiveTab("invest")}
+            className={`px-4 py-1.5 rounded text-sm font-sans transition-colors border ${activeTab === "invest" ? "bg-[#01696f]/10 border-[#01696f]/40 text-[#01696f]" : "border-[#1f1f1f] text-gray-400 hover:text-white bg-[#111]"}`}
+          >Invest</button>
+          <Link
+            href="/register"
+            className="px-4 py-1.5 rounded text-sm font-sans transition-colors border border-[#1f1f1f] text-gray-400 hover:text-white bg-[#111]"
+          >Deploy Agent</Link>
         </div>
       </div>
 
@@ -124,7 +179,7 @@ export default function Dashboard() {
           <AreaChart data={tvlData} margin={{ top: 0, right: 0, left: 0, bottom: 0 }}>
             <defs>
               <linearGradient id="tvlGrad" x1="0" y1="0" x2="0" y2="1">
-                <stop offset="5%" stopColor="#01696f" stopOpacity={0.3} />
+                <stop offset="5%"  stopColor="#01696f" stopOpacity={0.3} />
                 <stop offset="95%" stopColor="#01696f" stopOpacity={0} />
               </linearGradient>
             </defs>
@@ -138,22 +193,44 @@ export default function Dashboard() {
         </ResponsiveContainer>
 
         {/* Stake bar */}
-        {/* Agent selector */}
         <div className="mt-4 border-t border-[#1f1f1f] pt-4">
           <p className="text-[10px] text-gray-500 uppercase tracking-widest mb-2">Select Agent to Stake Into</p>
-          <select value={selectedAgent} onChange={(e) => setSelectedAgent(e.target.value)} className="w-full bg-[#0a0a0a] border border-[#2a2a2a] rounded px-3 py-2 text-xs text-white font-mono mb-3 focus:border-[#01696f] outline-none cursor-pointer">
-            {MOCK_AGENTS.filter(a => a.status === "active").map(a => <option key={a.pubkey} value={a.pubkey}>{a.name} — {a.strategy} ({a.pnl})</option>)}
+          <select
+            value={selectedAgent} onChange={(e) => setSelectedAgent(e.target.value)}
+            className="w-full bg-[#0a0a0a] border border-[#2a2a2a] rounded px-3 py-2 text-xs text-white font-mono mb-3 focus:border-[#01696f] outline-none cursor-pointer"
+          >
+            {MOCK_AGENTS.filter(a => a.status === "active").map(a => (
+              <option key={a.pubkey} value={a.pubkey}>{a.name} — {a.strategy} ({a.pnl})</option>
+            ))}
           </select>
           <div className="flex items-center gap-3">
-          <div className="relative flex-1">
-            <input type="number" value={stakeAmount} onChange={e => setStakeAmount(e.target.value)}
-              placeholder="0.00" className="w-full bg-[#0a0a0a] border border-[#2a2a2a] rounded px-4 py-2.5 font-mono text-sm text-white outline-none focus:border-[#01696f] transition-colors placeholder:text-gray-700" />
-            <select value={stakeToken} onChange={(e) => setStakeToken(e.target.value)} className="absolute right-2 top-1.5 bg-zinc-900 border border-zinc-700 text-teal-400 text-xs rounded px-2 py-1 focus:outline-none cursor-pointer">{["USDC","USDT","SOL","JUP","BONK","RAY"].map(t => <option key={t} value={t}>{t}</option>)}</select>
+            <div className="relative flex-1">
+              <input
+                type="number" value={stakeAmount} onChange={e => setStakeAmount(e.target.value)}
+                placeholder="0.00"
+                className="w-full bg-[#0a0a0a] border border-[#2a2a2a] rounded px-4 py-2.5 font-mono text-sm text-white outline-none focus:border-[#01696f] transition-colors placeholder:text-gray-700"
+              />
+              <select
+                value={stakeToken} onChange={(e) => setStakeToken(e.target.value)}
+                className="absolute right-2 top-1.5 bg-zinc-900 border border-zinc-700 text-teal-400 text-xs rounded px-2 py-1 focus:outline-none cursor-pointer"
+              >
+                {["USDC","USDT","SOL","JUP","BONK","RAY"].map(t => <option key={t} value={t}>{t}</option>)}
+              </select>
+            </div>
+            <button
+              onClick={handleStake} disabled={staking}
+              className="px-6 py-2.5 bg-[#01696f] hover:bg-[#01595e] disabled:opacity-50 text-white rounded text-sm font-medium transition-colors whitespace-nowrap flex items-center gap-2"
+            >
+              {staking
+                ? <><span className="w-3 h-3 border-2 border-white/30 border-t-white rounded-full animate-spin" />Staking...</>
+                : "Stake Now"}
+            </button>
           </div>
-          <button className="px-6 py-2.5 bg-[#01696f] hover:bg-[#01595e] text-white rounded text-sm font-medium transition-colors whitespace-nowrap">
-            Stake Now
-          </button>
-          </div>
+          {stakeMsg && (
+            <p className={`text-xs mt-2 font-mono ${stakeMsg.startsWith("✓") ? "text-[#01696f]" : "text-red-400"}`}>
+              {stakeMsg}
+            </p>
+          )}
         </div>
       </div>
 
@@ -173,7 +250,7 @@ export default function Dashboard() {
           <table className="w-full text-left border-collapse">
             <thead>
               <tr className="border-b border-[#1f1f1f] bg-[#0d0d0d]">
-                {["RANK", "AGENT", "STRATEGY", "AUM", "PNL (24H)", "WIN RATE", "STATUS"].map(h => (
+                {["RANK","AGENT","STRATEGY","AUM","PNL (24H)","WIN RATE","STATUS"].map(h => (
                   <th key={h} className="px-3 py-2.5 text-[10px] text-gray-600 uppercase tracking-widest font-sans whitespace-nowrap">{h}</th>
                 ))}
               </tr>
@@ -225,8 +302,11 @@ export default function Dashboard() {
           </div>
           <div className="divide-y divide-[#1a1a1a]">
             {MOCK_TRADES.map((trade, i) => (
-              <motion.div key={i} initial={{ opacity: 0, x: 10 }} animate={{ opacity: 1, x: 0 }} transition={{ delay: i * 0.05 }}
-                className="px-4 py-2.5 flex items-center gap-3 hover:bg-[#141414] transition-colors">
+              <motion.div
+                key={i} initial={{ opacity: 0, x: 10 }} animate={{ opacity: 1, x: 0 }}
+                transition={{ delay: i * 0.05 }}
+                className="px-4 py-2.5 flex items-center gap-3 hover:bg-[#141414] transition-colors"
+              >
                 <span className={`text-[10px] font-mono font-bold px-1.5 py-0.5 rounded ${trade.side === "BUY" ? "bg-[#01696f]/20 text-[#01696f]" : "bg-red-900/20 text-red-400"}`}>
                   {trade.side}
                 </span>

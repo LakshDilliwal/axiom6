@@ -26,4 +26,6 @@ pub enum AxiomError {
     EpochNotFinished,
     #[msg("Invalid remaining accounts")]
     InvalidRemainingAccounts,
+    #[msg("Insufficient shares to unstake")]
+    InsufficientShares,
 }
