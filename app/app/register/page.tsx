@@ -2,8 +2,18 @@
 import { useState } from "react";
 import { useWallet, useAnchorWallet, useConnection } from "@solana/wallet-adapter-react";
 import { AnchorProvider, BN } from "@coral-xyz/anchor";
-import { PublicKey, SystemProgram, Keypair } from "@solana/web3.js";
-import { getAssociatedTokenAddress, TOKEN_PROGRAM_ID } from "@solana/spl-token";
+import {
+  PublicKey,
+  SystemProgram,
+  Keypair,
+  Transaction,
+} from "@solana/web3.js";
+import {
+  getAssociatedTokenAddress,
+  createAssociatedTokenAccountInstruction,
+  TOKEN_PROGRAM_ID,
+  ASSOCIATED_TOKEN_PROGRAM_ID,
+} from "@solana/spl-token";
 import { getAxiom6Program, getRegistryPDA } from "../../lib/axiom6";
 
 const USDC_MINT = new PublicKey("4zMMC9srt5Ri5X14GAgXhaHii3GnPAEERYPJgZJDncDU");
@@ -15,7 +25,7 @@ const STRATEGIES = [
 ];
 
 export default function Register() {
-  const { connected, publicKey } = useWallet();
+  const { connected, publicKey, signTransaction } = useWallet();
   const wallet = useAnchorWallet();
   const { connection } = useConnection();
   const [name, setName] = useState("");
@@ -25,9 +35,10 @@ export default function Register() {
   const [errorMsg, setErrorMsg] = useState("");
   const [agentAddress, setAgentAddress] = useState("");
   const [agentSecret, setAgentSecret] = useState("");
+  const [txSig, setTxSig] = useState("");
 
   const handleDeploy = async () => {
-    if (!connected || !wallet || !publicKey) {
+    if (!connected || !wallet || !publicKey || !signTransaction) {
       setErrorMsg("Connect your wallet first."); setStatus("error"); return;
     }
     if (!name.trim()) {
@@ -39,22 +50,51 @@ export default function Register() {
     }
     try {
       setStatus("pending");
+      setErrorMsg("");
+
       const provider = new AnchorProvider(connection, wallet, { commitment: "confirmed" });
       const program = getAxiom6Program(provider);
       const [registryPDA] = getRegistryPDA();
 
+      // 1. Fresh agent keypair
       const agentKeypair = Keypair.generate();
       const agentPubkey = agentKeypair.publicKey;
 
+      // 2. agent_state PDA — seeds: ["agent", agent_pubkey]
       const [agentStatePDA] = PublicKey.findProgramAddressSync(
         [Buffer.from("agent"), agentPubkey.toBuffer()],
         program.programId
       );
 
-      const vaultUsdcAta = await getAssociatedTokenAddress(USDC_MINT, agentStatePDA, true);
+      // 3. Vault ATA — owner is agentStatePDA (PDA), so allowOwnerOffCurve = true
+      const vaultUsdcAta = await getAssociatedTokenAddress(
+        USDC_MINT,
+        agentStatePDA,
+        true,                         // allowOwnerOffCurve — required for PDA owner
+        TOKEN_PROGRAM_ID,
+        ASSOCIATED_TOKEN_PROGRAM_ID,
+      );
 
-      await (program.methods as any)
-        .registerAgent(feeBps, [USDC_MINT])
+      const tx = new Transaction();
+
+      // 4. CREATE vault ATA first — program requires it pre-initialized
+      const vaultAtaInfo = await connection.getAccountInfo(vaultUsdcAta);
+      if (!vaultAtaInfo) {
+        tx.add(
+          createAssociatedTokenAccountInstruction(
+            publicKey,      // payer
+            vaultUsdcAta,   // new ATA address
+            agentStatePDA,  // owner ← MUST be PDA, not developer
+            USDC_MINT,
+            TOKEN_PROGRAM_ID,
+            ASSOCIATED_TOKEN_PROGRAM_ID,
+          )
+        );
+      }
+
+      // 5. register_agent instruction
+      const registerIx = await (program.methods as any)
+        .registerAgent(new BN(feeBps), [USDC_MINT])
         .accounts({
           registry: registryPDA,
           agentState: agentStatePDA,
@@ -63,13 +103,37 @@ export default function Register() {
           vaultUsdcAta: vaultUsdcAta,
           systemProgram: SystemProgram.programId,
         })
-        .rpc();
+        .instruction();   // .instruction() not .rpc() — we build tx manually
+
+      tx.add(registerIx);
+
+      // 6. Blockhash + fee payer
+      const { blockhash, lastValidBlockHeight } = await connection.getLatestBlockhash();
+      tx.recentBlockhash = blockhash;
+      tx.feePayer = publicKey;
+
+      // 7. agentKeypair must co-sign (it's passed as account)
+      tx.partialSign(agentKeypair);
+
+      // 8. Wallet signs + send
+      const signed = await signTransaction(tx);
+      const signature = await connection.sendRawTransaction(signed.serialize(), {
+        skipPreflight: false,
+        preflightCommitment: "confirmed",
+      });
+      await connection.confirmTransaction(
+        { signature, blockhash, lastValidBlockHeight },
+        "confirmed"
+      );
 
       setAgentAddress(agentStatePDA.toBase58());
       setAgentSecret(Buffer.from(agentKeypair.secretKey).toString("base64"));
+      setTxSig(signature);
       setStatus("success");
     } catch (err: any) {
-      setErrorMsg(err?.message || "Deploy failed");
+      console.error("[registerAgent]", err);
+      const msg = err?.logs?.join("\n") || err?.message || "Deploy failed";
+      setErrorMsg(msg);
       setStatus("error");
     }
   };
@@ -89,13 +153,22 @@ export default function Register() {
           </div>
 
           <div>
+            <p className="text-gray-400 text-[10px] uppercase tracking-widest mb-1">TX Signature</p>
+            <a
+              href={`https://explorer.solana.com/tx/${txSig}?cluster=devnet`}
+              target="_blank" rel="noopener noreferrer"
+              className="text-[10px] font-mono text-[#4f98a3] break-all bg-[#111] rounded p-2 block hover:underline"
+            >{txSig}</a>
+          </div>
+
+          <div>
             <p className="text-yellow-500 text-[10px] uppercase tracking-widest mb-1">⚠ Agent Secret Key — save this now</p>
             <p className="text-[10px] font-mono text-yellow-300 break-all bg-[#1a1000] border border-yellow-900/40 rounded p-2">{agentSecret}</p>
-            <p className="text-[9px] text-gray-600 mt-1">Base64-encoded secret key. Store in your .env as AGENT_SECRET_KEY. This will not be shown again.</p>
+            <p className="text-[9px] text-gray-600 mt-1">Base64-encoded. Store as AGENT_SECRET_KEY in .env. Not shown again.</p>
           </div>
 
           <button
-            onClick={() => { setStatus("idle"); setName(""); setAgentSecret(""); }}
+            onClick={() => { setStatus("idle"); setName(""); setAgentSecret(""); setTxSig(""); }}
             className="w-full mt-2 px-4 py-2 border border-[#1f1f1f] text-gray-400 hover:text-white rounded text-xs transition-colors"
           >
             Deploy Another
@@ -104,8 +177,8 @@ export default function Register() {
       ) : (
         <div className="border border-[#1f1f1f] bg-[#111] rounded-lg p-6 flex flex-col gap-5">
           {status === "error" && (
-            <div className="border border-red-900/50 bg-red-900/10 rounded p-3">
-              <p className="text-red-400 text-xs font-mono">{errorMsg}</p>
+            <div className="border border-red-900/50 bg-red-900/10 rounded p-3 max-h-40 overflow-auto">
+              <p className="text-red-400 text-xs font-mono whitespace-pre-wrap">{errorMsg}</p>
             </div>
           )}
           <div>
@@ -132,11 +205,11 @@ export default function Register() {
             />
           </div>
           <div className="border border-[#1f1f1f] rounded p-3 bg-[#0a0a0a]">
-            <p className="text-[10px] text-gray-500 uppercase tracking-widest mb-1">Wallet</p>
+            <p className="text-[10px] text-gray-500 uppercase tracking-widest mb-1">Developer Wallet</p>
             <p className="text-xs font-mono text-gray-300">{connected ? publicKey?.toBase58() : "Not connected"}</p>
           </div>
           <button
-            onClick={handleDeploy} disabled={status === "pending"}
+            onClick={handleDeploy} disabled={status === "pending" || !connected}
             className="w-full py-2.5 bg-[#01696f] hover:bg-[#01595e] disabled:opacity-50 text-white rounded text-sm font-medium transition-colors flex items-center justify-center gap-2"
           >
             {status === "pending" ? (
