@@ -15,10 +15,8 @@ export function Navbar() {
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-14 flex items-center justify-between">
         <Link href="/" className="flex items-center gap-2.5 group">
           <svg width="28" height="28" viewBox="0 0 28 28" fill="none" aria-label="Axiom6 Logo">
-            <polygon points="14,2 26,22 2,22" stroke="#01696f" strokeWidth="1.5" fill="none" strokeLinejoin="round"/>
-            <polygon points="14,8 21,20 7,20" fill="#01696f" opacity="0.25"/>
-            <line x1="14" y1="8" x2="14" y2="16" stroke="#01696f" strokeWidth="1.5" strokeLinecap="round"/>
-            <circle cx="14" cy="18" r="1.2" fill="#01696f"/>
+            <polygon points="14,2 25,8 25,20 14,26 3,20 3,8" stroke="#01696f" strokeWidth="1.5" fill="rgba(1,105,111,0.1)"/>
+            <text x="14" y="18" textAnchor="middle" fill="#01696f" fontSize="8" fontWeight="700" fontFamily="monospace">A6</text>
           </svg>
           <span className="font-bold text-white tracking-tight text-base">
             AXIOM<span className="text-[#01696f]">6</span>

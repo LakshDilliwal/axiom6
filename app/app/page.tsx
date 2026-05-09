@@ -42,6 +42,13 @@ export default function Home() {
             Leaderboard
           </Link>
         </motion.div>
+        <div className="flex items-center justify-center gap-4 mt-6 opacity-60">
+          <span className="text-xs text-gray-500 uppercase tracking-widest">Built on</span>
+          <img src="https://cryptologos.cc/logos/solana-sol-logo.png" alt="Solana" width={20} height={20} className="object-contain" />
+          <span className="text-xs text-gray-400">Solana</span>
+          <img src="https://jup.ag/favicon.ico" alt="Jupiter" width={20} height={20} className="rounded object-contain" />
+          <span className="text-xs text-gray-400">Jupiter</span>
+        </div>
       </section>
 
       {/* Stats bar */}

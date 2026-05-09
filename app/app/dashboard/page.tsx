@@ -67,6 +67,7 @@ export default function Dashboard() {
   const wallet = useAnchorWallet();
   const [registryData, setRegistryData] = useState<any>(null);
   const [stakeAmount, setStakeAmount] = useState("");
+  const [stakeToken, setStakeToken] = useState("USDC");
   const [activeTab, setActiveTab] = useState<"invest" | "deploy">("invest");
 
   useEffect(() => {
@@ -140,7 +141,7 @@ export default function Dashboard() {
           <div className="relative flex-1">
             <input type="number" value={stakeAmount} onChange={e => setStakeAmount(e.target.value)}
               placeholder="0.00" className="w-full bg-[#0a0a0a] border border-[#2a2a2a] rounded px-4 py-2.5 font-mono text-sm text-white outline-none focus:border-[#01696f] transition-colors placeholder:text-gray-700" />
-            <span className="absolute right-4 top-2.5 text-gray-500 font-mono text-xs">USDC</span>
+            <select value={stakeToken} onChange={(e) => setStakeToken(e.target.value)} className="absolute right-2 top-1.5 bg-zinc-900 border border-zinc-700 text-teal-400 text-xs rounded px-2 py-1 focus:outline-none cursor-pointer">{["USDC","USDT","SOL","JUP","BONK","RAY"].map(t => <option key={t} value={t}>{t}</option>)}</select>
           </div>
           <button className="px-6 py-2.5 bg-[#01696f] hover:bg-[#01595e] text-white rounded text-sm font-medium transition-colors whitespace-nowrap">
             Stake Now
