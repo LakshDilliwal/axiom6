@@ -1,264 +1,153 @@
 "use client";
-import { useEffect, useState } from "react";
-import { useAnchorWallet, useConnection } from "@solana/wallet-adapter-react";
-import { AnchorProvider, Program } from "@coral-xyz/anchor";
-import { PublicKey } from "@solana/web3.js";
-import { getAccount } from "@solana/spl-token";
-import { Navbar } from "../../components/Navbar";
+import { useState, useMemo } from "react";
 import Link from "next/link";
 
-const PROGRAM_ID  = new PublicKey("2aFgAGbsujHkPyaHFyqUy5wPNCmPmYsbv9AtxS9FpykJ");
-const VAULT_ATA   = new PublicKey("A3gwLy3pyVs4eqNHF48iPRjaVTgbztz9EmPD1GU6ecPi");
+const STRATEGIES = ["All Strategies","Momentum Scalper","Delta Neutral","Mean Reversion","Arbitrage Hunter","Grid Trading","Sentiment Analysis"];
+const SORT_OPTIONS = [{label:"TVL",key:"tvl"},{label:"APY",key:"apy"},{label:"Win Rate",key:"winRate"},{label:"PnL",key:"pnl"}];
 
-interface AgentRow {
-  pda:        string;
-  pubkey:     string;
-  developer:  string;
-  status:     string;
-  perfFeeBps: number;
-  shares:     number;
-  aps:        number;
-  hwm:        number;
-  pnl:        number;
-  trades:     number;
-  tvl:        number;
-  returnPct:  number;
+interface Agent {
+  rank:number; name:string; pubkey:string; strategy:string;
+  tvl:number; apy:number; winRate:number; pnl:number; trades:number;
+  status:"active"|"paused"; isNew?:boolean;
 }
 
-function fmt(n: number, d = 2) { return n.toLocaleString("en-US", { maximumFractionDigits: d }); }
-function short(s: string) { return `${s.slice(0,4)}...${s.slice(-4)}`; }
+const MOCK_AGENTS: Agent[] = [
+  {rank:1,name:"Axiom6 Alpha",      pubkey:"7sKSU5At",strategy:"Momentum Scalper", tvl:128450,apy:18.6,winRate:71.2,pnl:23841, trades:2847,status:"active"},
+  {rank:2,name:"Sigma Delta",       pubkey:"9xKMT2Pq",strategy:"Delta Neutral",    tvl:94200, apy:14.3,winRate:68.5,pnl:13486, trades:1920,status:"active"},
+  {rank:3,name:"Mean Rev Bot",      pubkey:"AcKp7Rz3",strategy:"Mean Reversion",   tvl:76300, apy:11.8,winRate:64.0,pnl:9012,  trades:1540,status:"active"},
+  {rank:4,name:"Arb Hunter IV",     pubkey:"Bm2nP8Xt",strategy:"Arbitrage Hunter", tvl:55000, apy:9.4, winRate:59.3,pnl:5170,  trades:3210,status:"active"},
+  {rank:5,name:"Grid Master Pro",   pubkey:"Cw8sL1Qa",strategy:"Grid Trading",     tvl:34100, apy:7.2, winRate:55.1,pnl:2460,  trades:890, status:"paused"},
+  {rank:6,name:"Sentiment Alpha",   pubkey:"Dv3kR5Nz",strategy:"Sentiment Analysis",tvl:21900,apy:5.8, winRate:52.0,pnl:1272,  trades:412, status:"active",isNew:true},
+  {rank:7,name:"Newborn Quant",     pubkey:"Ev1bQ2Mx",strategy:"Momentum Scalper", tvl:5200,  apy:0,   winRate:0,   pnl:0,     trades:0,   status:"active",isNew:true},
+];
+
+function fmt(n:number,d=2){return n.toLocaleString("en-US",{maximumFractionDigits:d});}
 
 export default function Leaderboard() {
-  const wallet         = useAnchorWallet();
-  const { connection } = useConnection();
-  const [agents, setAgents]   = useState<AgentRow[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError]     = useState("");
-  const [sort, setSort]       = useState<keyof AgentRow>("aps");
-  const [dir, setDir]         = useState<"asc"|"desc">("desc");
-  const [lastUpdated, setLastUpdated] = useState<Date | null>(null);
+  const [strategy,setStrategy]   = useState("All Strategies");
+  const [sortKey,setSortKey]     = useState<"tvl"|"apy"|"winRate"|"pnl">("tvl");
+  const [sortDir,setSortDir]     = useState<"desc"|"asc">("desc");
+  const [watchlist,setWatchlist] = useState<Set<string>>(new Set());
 
-  const fetchAgents = async () => {
-    if (!wallet) return;
-    try {
-      setLoading(true);
-      const provider = new AnchorProvider(connection, wallet, { commitment: "confirmed" });
-      const idl      = await Program.fetchIdl(PROGRAM_ID, provider);
-      if (!idl) throw new Error("IDL not found");
-      const program  = new Program(idl as any, provider);
+  const toggleWatchlist = (pk:string) =>
+    setWatchlist(prev=>{const s=new Set(prev);s.has(pk)?s.delete(pk):s.add(pk);return s;});
 
-      const all = await (program.account as any).agentState.all();
-      const rows: AgentRow[] = await Promise.all(all.map(async ({ publicKey, account }: any) => {
-        const vaultAta = account.vaultUsdcAta as PublicKey;
-        const vaultAcct = await getAccount(connection, vaultAta).catch(() => null);
-        const tvl  = vaultAcct ? Number(vaultAcct.amount) / 1_000_000 : 0;
-        const aps  = account.assetsPerShare.toNumber() / 1_000_000;
-        const hwm  = account.highWaterMark.toNumber()  / 1_000_000;
-        const returnPct = hwm > 0 ? ((aps - hwm) / hwm * 100) : 0;
-        return {
-          pda:        publicKey.toBase58(),
-          pubkey:     account.agentPubkey.toBase58(),
-          developer:  account.developer.toBase58(),
-          status:     Object.keys(account.status)[0],
-          perfFeeBps: account.performanceFeeBps,
-          shares:     account.totalShares.toNumber() / 1_000_000,
-          aps,
-          hwm,
-          pnl:        account.cumulativePnl.toNumber() / 1_000_000,
-          trades:     account.totalTrades.toNumber(),
-          tvl,
-          returnPct,
-        };
-      }));
-
-      setAgents(rows);
-      setLastUpdated(new Date());
-      setError("");
-    } catch (e: any) {
-      setError(e?.message ?? "Failed to load");
-    } finally {
-      setLoading(false);
-    }
+  const toggleSort = (key:typeof sortKey) => {
+    if(key===sortKey)setSortDir(d=>d==="desc"?"asc":"desc");
+    else{setSortKey(key);setSortDir("desc");}
   };
 
-  useEffect(() => {
-    fetchAgents();
-    const t = setInterval(fetchAgents, 15_000);
-    return () => clearInterval(t);
-  }, [wallet]);
+  const filtered = useMemo(()=>{
+    let list=[...MOCK_AGENTS];
+    if(strategy!=="All Strategies")list=list.filter(a=>a.strategy===strategy);
+    list.sort((a,b)=>sortDir==="desc"?b[sortKey]-a[sortKey]:a[sortKey]-b[sortKey]);
+    return list;
+  },[strategy,sortKey,sortDir]);
 
-  const sorted = [...agents].sort((a, b) => {
-    const av = a[sort] as number | string;
-    const bv = b[sort] as number | string;
-    if (typeof av === "number" && typeof bv === "number")
-      return dir === "desc" ? bv - av : av - bv;
-    return dir === "desc"
-      ? String(bv).localeCompare(String(av))
-      : String(av).localeCompare(String(bv));
-  });
-
-  const toggleSort = (col: keyof AgentRow) => {
-    if (sort === col) setDir(d => d === "desc" ? "asc" : "desc");
-    else { setSort(col); setDir("desc"); }
-  };
-
-  const cols: { key: keyof AgentRow; label: string; align?: string }[] = [
-    { key: "pda",       label: "Agent" },
-    { key: "status",    label: "Status" },
-    { key: "tvl",       label: "TVL",      align: "right" },
-    { key: "aps",       label: "APS",      align: "right" },
-    { key: "returnPct", label: "Return",   align: "right" },
-    { key: "pnl",       label: "PnL",      align: "right" },
-    { key: "trades",    label: "Trades",   align: "right" },
-    { key: "perfFeeBps",label: "Perf Fee", align: "right" },
-  ];
+  const watched = MOCK_AGENTS.filter(a=>watchlist.has(a.pubkey));
 
   return (
-    <div className="min-h-screen bg-[#0a0a0a] text-white">
-      <Navbar />
-      <main className="max-w-6xl mx-auto px-4 py-10">
+    <main className="max-w-6xl mx-auto px-4 py-10 space-y-8">
+      <div>
+        <h1 className="text-xl font-bold text-white">Agent Leaderboard</h1>
+        <p className="text-xs text-gray-500 mt-1">Ranked by risk-adjusted performance · Updated every epoch</p>
+      </div>
 
-        {/* Header */}
-        <div className="flex items-end justify-between mb-6">
-          <div>
-            <h1 className="text-xl font-bold text-white">Leaderboard</h1>
-            <p className="text-xs text-gray-500 mt-0.5">All registered agents — ranked by APS</p>
+      {watched.length>0&&(
+        <div className="border border-[#1f1f1f] bg-[#0d0d0d] rounded-xl p-4">
+          <p className="text-[10px] text-gray-600 uppercase tracking-widest mb-3 font-mono">⭐ Your Watchlist</p>
+          <div className="flex flex-wrap gap-2">
+            {watched.map(a=>(
+              <Link key={a.pubkey} href={`/agent/${a.pubkey}`}
+                className="flex items-center gap-2 border border-[#2a2a2a] bg-[#111] hover:border-[#01696f]/50 rounded-lg px-3 py-2 text-xs transition-colors">
+                <span className="w-1.5 h-1.5 rounded-full bg-[#01696f]"/>
+                <span className="font-medium text-white">{a.name}</span>
+                <span className="text-gray-600 font-mono">{a.apy>0?`${a.apy}% APY`:"New"}</span>
+              </Link>
+            ))}
           </div>
-          <div className="flex items-center gap-3">
-            {lastUpdated && (
-              <span className="text-[10px] text-gray-600 font-mono">
-                Updated {lastUpdated.toLocaleTimeString()}
-              </span>
-            )}
-            <div className="flex items-center gap-1.5">
-              <span className={`w-2 h-2 rounded-full ${loading ? "bg-yellow-400 animate-pulse" : "bg-[#01696f] animate-pulse"}`} />
-              <span className="text-[10px] text-gray-500">{loading ? "syncing" : "live"}</span>
-            </div>
-            <button onClick={fetchAgents}
-              className="text-[10px] border border-[#1f1f1f] text-gray-500 hover:text-white px-2 py-1 rounded transition-colors">
-              ↻ Refresh
+        </div>
+      )}
+
+      <div className="flex flex-wrap items-center gap-3">
+        <div className="relative">
+          <select value={strategy} onChange={e=>setStrategy(e.target.value)}
+            className="appearance-none bg-[#111] border border-[#2a2a2a] text-xs text-gray-300 font-mono rounded-lg px-3 py-2 pr-8 focus:border-[#01696f] outline-none cursor-pointer transition-colors">
+            {STRATEGIES.map(s=><option key={s} value={s}>{s}</option>)}
+          </select>
+          <span className="pointer-events-none absolute right-2.5 top-1/2 -translate-y-1/2 text-gray-600 text-[10px]">▼</span>
+        </div>
+        <div className="flex items-center border border-[#2a2a2a] rounded-lg overflow-hidden">
+          <span className="text-[10px] text-gray-600 px-3 font-mono uppercase tracking-wider border-r border-[#2a2a2a]">Sort</span>
+          {SORT_OPTIONS.map(o=>(
+            <button key={o.key} onClick={()=>toggleSort(o.key as typeof sortKey)}
+              className={`px-3 py-2 text-[11px] font-mono transition-colors border-r border-[#1f1f1f] last:border-0 ${sortKey===o.key?"bg-[#01696f]/15 text-[#01696f]":"text-gray-500 hover:text-gray-300"}`}>
+              {o.label}{sortKey===o.key&&<span className="ml-1">{sortDir==="desc"?"↓":"↑"}</span>}
             </button>
-            <Link href="/register"
-              className="text-[10px] border border-[#01696f]/40 text-[#01696f] hover:text-white hover:border-[#01696f] px-3 py-1.5 rounded transition-colors">
-              + Deploy Agent
-            </Link>
-          </div>
+          ))}
         </div>
+        <span className="text-[10px] text-gray-700 font-mono ml-auto">{filtered.length} agents</span>
+      </div>
 
-        {/* Stats bar */}
-        <div className="grid grid-cols-3 gap-3 mb-6">
-          <div className="border border-[#1f1f1f] bg-[#111] rounded-lg p-3">
-            <p className="text-[10px] text-gray-500 uppercase tracking-widest mb-1">Total Agents</p>
-            <p className="text-lg font-mono font-bold text-white">{agents.length}</p>
-          </div>
-          <div className="border border-[#1f1f1f] bg-[#111] rounded-lg p-3">
-            <p className="text-[10px] text-gray-500 uppercase tracking-widest mb-1">Total TVL</p>
-            <p className="text-lg font-mono font-bold text-white">
-              ${fmt(agents.reduce((s, a) => s + a.tvl, 0))}
-            </p>
-          </div>
-          <div className="border border-[#1f1f1f] bg-[#111] rounded-lg p-3">
-            <p className="text-[10px] text-gray-500 uppercase tracking-widest mb-1">Total Trades</p>
-            <p className="text-lg font-mono font-bold text-white">
-              {agents.reduce((s, a) => s + a.trades, 0)}
-            </p>
-          </div>
+      <div className="border border-[#1f1f1f] rounded-xl overflow-hidden">
+        <div className="grid grid-cols-[28px_28px_1fr_140px_90px_90px_88px_80px_160px] gap-0 px-4 py-2.5 border-b border-[#1a1a1a] bg-[#0a0a0a]">
+          {["","#","AGENT","STRATEGY","TVL","APY","WIN RATE","TRADES",""].map((h,i)=>(
+            <span key={i} className="text-[9px] font-mono text-gray-600 uppercase tracking-widest">{h}</span>
+          ))}
         </div>
-
-        {/* Table */}
-        <div className="border border-[#1f1f1f] bg-[#111] rounded-lg overflow-hidden">
-          {error ? (
-            <div className="p-8 text-center">
-              <p className="text-xs font-mono text-red-400">{error}</p>
-              <button onClick={fetchAgents} className="mt-3 text-xs text-[#01696f] hover:underline">Retry</button>
+        {filtered.map((agent,idx)=>(
+          <div key={agent.pubkey}
+            className="grid grid-cols-[28px_28px_1fr_140px_90px_90px_88px_80px_160px] gap-0 px-4 py-3.5 border-b border-[#111] last:border-0 hover:bg-[#0d0d0d] transition-colors items-center group">
+            <button onClick={()=>toggleWatchlist(agent.pubkey)}
+              className={`text-sm transition-colors ${watchlist.has(agent.pubkey)?"text-yellow-400":"text-gray-700 hover:text-gray-500"}`}
+              title={watchlist.has(agent.pubkey)?"Remove from watchlist":"Add to watchlist"}>
+              {watchlist.has(agent.pubkey)?"★":"☆"}
+            </button>
+            <span className={`text-xs font-mono font-bold ${idx===0?"text-yellow-400":idx===1?"text-gray-400":idx===2?"text-amber-700":"text-gray-600"}`}>{idx+1}</span>
+            <div className="min-w-0">
+              <div className="flex items-center gap-2">
+                <span className="text-sm font-medium text-white truncate">{agent.name}</span>
+                {agent.isNew&&<span className="text-[9px] font-mono px-1.5 py-0.5 rounded bg-[#01696f]/15 text-[#01696f] border border-[#01696f]/20">NEW</span>}
+                <span className={`w-1.5 h-1.5 rounded-full flex-shrink-0 ${agent.status==="active"?"bg-[#01696f]":"bg-yellow-600"}`}/>
+              </div>
+              <span className="text-[10px] font-mono text-gray-600">{agent.pubkey}…</span>
             </div>
-          ) : loading && agents.length === 0 ? (
-            <div className="p-8 space-y-3">
-              {[1,2,3].map(i => (
-                <div key={i} className="h-10 bg-[#1a1a1a] rounded animate-pulse" />
-              ))}
-            </div>
-          ) : agents.length === 0 ? (
-            <div className="p-16 text-center">
-              <p className="text-2xl mb-3">🤖</p>
-              <p className="text-sm text-gray-400 font-medium">No agents registered yet</p>
-              <p className="text-xs text-gray-600 mt-1 mb-4">Be the first to deploy an AI trading agent</p>
-              <Link href="/register" className="text-xs text-[#01696f] border border-[#01696f]/40 px-4 py-2 rounded hover:bg-[#01696f]/10 transition-colors">
-                Deploy First Agent
+            <span className="text-[10px] font-mono text-gray-500 truncate pr-2">{agent.strategy}</span>
+            <span className="text-xs font-mono text-white tabular-nums">
+              {agent.tvl>0?`$${fmt(agent.tvl,0)}`:<span className="text-gray-700 text-[10px]" title="Awaiting first deposit">—</span>}
+            </span>
+            <span className={`text-xs font-mono tabular-nums ${agent.apy>0?"text-[#01696f]":"text-gray-700"}`}>
+              {agent.apy>0?`${agent.apy}%`:(
+                <span title="No settled epochs yet. APY calculated after first epoch settlement.">
+                  <span className="text-gray-700">—</span><span className="text-[9px] text-gray-700 ml-1 cursor-help">ⓘ</span>
+                </span>
+              )}
+            </span>
+            <span className={`text-xs font-mono tabular-nums ${agent.winRate>0?"text-gray-300":"text-gray-700"}`}>
+              {agent.winRate>0?`${agent.winRate}%`:(
+                <span title="Win rate populates after 10+ completed trades">
+                  <span className="text-gray-700">—</span><span className="text-[9px] text-gray-700 ml-1 cursor-help">ⓘ</span>
+                </span>
+              )}
+            </span>
+            <span className="text-xs font-mono text-gray-400 tabular-nums">
+              {agent.trades>0?fmt(agent.trades,0):<span className="text-gray-700 text-[10px]" title="Awaiting first trade execution">0</span>}
+            </span>
+            <div className="flex items-center gap-1.5 justify-end">
+              <Link href={`/agent/${agent.pubkey}`}
+                className="px-3 py-1.5 rounded-lg text-[11px] font-semibold text-white transition-all"
+                style={{background:"linear-gradient(135deg,#01696f,#0c4e54)",boxShadow:"0 0 0 1px #01696f40"}}>
+                Stake
+              </Link>
+              <Link href={`/agent/${agent.pubkey}`}
+                className="px-2.5 py-1.5 rounded-lg text-[11px] font-mono text-gray-500 border border-[#2a2a2a] hover:border-[#3a3a3a] hover:text-gray-300 transition-colors">
+                Details
               </Link>
             </div>
-          ) : (
-            <div className="overflow-x-auto">
-              <table className="w-full text-xs">
-                <thead>
-                  <tr className="border-b border-[#1a1a1a]">
-                    <th className="px-4 py-3 text-left text-[10px] text-gray-600 font-medium uppercase tracking-widest w-8">#</th>
-                    {cols.map(c => (
-                      <th key={c.key}
-                        onClick={() => toggleSort(c.key)}
-                        className={`px-4 py-3 text-[10px] text-gray-600 font-medium uppercase tracking-widest cursor-pointer hover:text-white transition-colors select-none ${c.align === "right" ? "text-right" : "text-left"}`}>
-                        {c.label}
-                        {sort === c.key && (
-                          <span className="ml-1 text-[#01696f]">{dir === "desc" ? "↓" : "↑"}</span>
-                        )}
-                      </th>
-                    ))}
-                    <th className="px-4 py-3 text-right text-[10px] text-gray-600 font-medium uppercase tracking-widest">Action</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {sorted.map((agent, i) => (
-                    <tr key={agent.pda}
-                      className="border-b border-[#141414] hover:bg-[#141414] transition-colors">
-                      <td className="px-4 py-3.5 text-gray-600 font-mono">{i + 1}</td>
-                      <td className="px-4 py-3.5">
-                        <div className="flex items-center gap-2.5">
-                          <div className="w-7 h-7 rounded-md bg-[#01696f]/15 border border-[#01696f]/20 flex items-center justify-center text-[#01696f] font-bold text-[10px]">
-                            {agent.pda.slice(0, 2).toUpperCase()}
-                          </div>
-                          <div>
-                            <p className="text-white font-medium font-mono">{short(agent.pda)}</p>
-                            <p className="text-[9px] text-gray-600">dev: {short(agent.developer)}</p>
-                          </div>
-                        </div>
-                      </td>
-                      <td className="px-4 py-3.5">
-                        <span className={`px-2 py-0.5 rounded-full text-[9px] font-medium ${
-                          agent.status === "active"
-                            ? "bg-[#01696f]/15 text-[#01696f]"
-                            : "bg-red-900/20 text-red-400"
-                        }`}>
-                          {agent.status}
-                        </span>
-                      </td>
-                      <td className="px-4 py-3.5 text-right font-mono text-white">${fmt(agent.tvl)}</td>
-                      <td className="px-4 py-3.5 text-right font-mono text-[#01696f]">{agent.aps.toFixed(6)}</td>
-                      <td className={`px-4 py-3.5 text-right font-mono ${agent.returnPct >= 0 ? "text-[#01696f]" : "text-red-400"}`}>
-                        {agent.returnPct >= 0 ? "+" : ""}{fmt(agent.returnPct, 3)}%
-                      </td>
-                      <td className={`px-4 py-3.5 text-right font-mono ${agent.pnl >= 0 ? "text-[#01696f]" : "text-red-400"}`}>
-                        {agent.pnl >= 0 ? "+" : ""}${fmt(Math.abs(agent.pnl))}
-                      </td>
-                      <td className="px-4 py-3.5 text-right font-mono text-gray-400">{agent.trades}</td>
-                      <td className="px-4 py-3.5 text-right font-mono text-gray-400">{agent.perfFeeBps / 100}%</td>
-                      <td className="px-4 py-3.5 text-right">
-                        <Link href={`/agent/${agent.pda}`}
-                          className="text-[10px] border border-[#2a2a2a] hover:border-[#01696f]/50 text-gray-500 hover:text-white px-2.5 py-1 rounded transition-colors">
-                          View →
-                        </Link>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          )}
-        </div>
-
-        <p className="text-[10px] text-gray-700 text-center mt-4 font-mono">
-          Polling every 15s · Solana Devnet · Program {PROGRAM_ID.toBase58().slice(0,16)}...
-        </p>
-      </main>
-    </div>
+          </div>
+        ))}
+      </div>
+      <p className="text-[10px] font-mono text-gray-700 text-center">Performance data sourced from on-chain PDA state · Past returns do not guarantee future performance</p>
+    </main>
   );
 }
