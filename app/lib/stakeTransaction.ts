@@ -82,7 +82,7 @@ export async function stakeUsdc(
         }),
     };
 
-    const provider = new AnchorProvider(connection, anchorWallet, {
+    const provider = new AnchorProvider(connection, anchorWallet as any, {
       commitment: "confirmed",
       preflightCommitment: "confirmed",
     });
@@ -197,7 +197,7 @@ export async function unstakeShares(
         }),
     };
 
-    const provider = new AnchorProvider(connection, anchorWallet, {
+    const provider = new AnchorProvider(connection, anchorWallet as any, {
       commitment: "confirmed",
       preflightCommitment: "confirmed",
     });

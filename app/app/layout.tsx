@@ -15,7 +15,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
   const wallets = useMemo(() => [new PhantomWalletAdapter()], []);
   return (
     <html lang="en" className={`dark ${GeistSans.variable} ${GeistMono.variable}`}>
-      <body className="bg-[#0a0a0a] text-white min-h-screen selection:bg-[#01696f]/30 selection:text-white">
+      <body suppressHydrationWarning className="bg-[#0a0a0a] text-white min-h-screen selection:bg-[#01696f]/30 selection:text-white">
         <ConnectionProvider endpoint={DEVNET_RPC_URL}>
           <WalletProvider wallets={wallets} autoConnect>
             <WalletModalProvider>

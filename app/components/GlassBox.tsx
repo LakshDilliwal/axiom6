@@ -19,11 +19,11 @@ interface GlassBoxProps {
 }
 
 export function GlassBox({ vaultUsdc, totalShares, aps, trades, active = true }: GlassBoxProps) {
-  const [particles, setParticles] = useState<Particle[]>([]);
+  const [particles, setParticles] = useState<Particle[]>([] as Particle[]);
   const [swapping, setSwapping]   = useState(false);
   const [vaultGlow, setVaultGlow] = useState(false);
   const counterRef = useRef(0);
-  const rafRef     = useRef<number>();
+  const rafRef     = useRef<number | undefined>(undefined);
 
   // Animate particles
   useEffect(() => {

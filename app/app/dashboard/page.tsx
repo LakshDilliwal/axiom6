@@ -9,14 +9,7 @@ import { Connection, PublicKey } from "@solana/web3.js";
 import { AnchorProvider, Program, BN } from "@coral-xyz/anchor";
 import { stakeUsdc, unstakeShares, deriveAgentState, deriveStakerReceipt } from "../../lib/stakeTransaction";
 import { PROGRAM_ID, USDC_MINT, REGISTRY_PDA, RPC_URL } from "../../lib/constants";
-
-const AGENT_PUBKEYS: Record<string, string> = {
-  "1": "5ABdRPZsAc5yoWgiY5M2h6Nqdw4nzg6twgUmyASx6kV3",
-};
-
-const MOCK_AGENTS = [
-  { id: "1", name: "Alpha-7",   apy: 18.6, tvl: 4200000, trades: 847,  status: "Active", aps: 1.186 },
-];
+import { fetchAllAgents, AgentInfo } from "../../lib/fetchAgents";
 
 const MOCK_CHART = Array.from({ length: 30 }, (_, i) => ({
   day: `Day ${i + 1}`,
@@ -49,7 +42,9 @@ interface PositionLoadState {
 
 export default function Dashboard() {
   const { connected, publicKey, signTransaction, signAllTransactions } = useWallet();
-  const [selected, setSelected] = useState(MOCK_AGENTS[0]);
+  const [agents, setAgents] = useState<AgentInfo[]>([]);
+  const [agentsLoading, setAgentsLoading] = useState(true);
+  const [selected, setSelected] = useState<AgentInfo | null>(null);
   const [stakeAmount, setStakeAmount] = useState("");
   const [tab, setTab] = useState<"vaults" | "my">("vaults");
   const [txState, setTxState] = useState<TxState>("idle");
@@ -84,8 +79,8 @@ export default function Dashboard() {
 
       const positions: Position[] = [];
 
-      for (const agent of MOCK_AGENTS) {
-        const agentPubkeyStr = AGENT_PUBKEYS[agent.id];
+      for (const agent of agents) {
+        const agentPubkeyStr = agent.agentPubkey;
         if (!agentPubkeyStr) continue;
 
         try {
@@ -165,7 +160,7 @@ export default function Dashboard() {
 
     setTxState("loading"); setTxErr(""); setTxSig("");
 
-    const result = await stakeUsdc(AGENT_PUBKEYS[selected.id], amt, {
+    const result = await stakeUsdc(selected?.agentPubkey ?? "", amt, {
       publicKey, signTransaction, signAllTransactions,
     });
 
@@ -299,10 +294,10 @@ export default function Dashboard() {
           <div className="grid lg:grid-cols-3 gap-6">
             {/* Agent list */}
             <div className="lg:col-span-1 space-y-2">
-              {MOCK_AGENTS.map((agent) => (
+              {agents.map((agent) => (
                 <button key={agent.id} onClick={() => { setSelected(agent); setTxState("idle"); setStakeAmount(""); }}
                   className={`w-full text-left border rounded-xl p-4 transition-all duration-200 ${
-                    selected.id === agent.id
+                    selected?.id === agent.id
                       ? "border-[#01696f]/50 bg-[#01696f]/5"
                       : "border-[#1f1f1f] bg-[#0d0d0d] hover:border-[#2a2a2a]"
                   }`}>
@@ -318,7 +313,7 @@ export default function Dashboard() {
                   </div>
                   <div className="flex justify-between mt-1">
                     <span className="text-xs text-gray-500">TVL</span>
-                    <span className="text-xs font-mono text-gray-300">${(agent.tvl / 1e6).toFixed(1)}M</span>
+                    <span className="text-xs font-mono text-gray-300">${((agent.tvl ?? 0) / 1e6).toFixed(2)}</span>
                   </div>
                 </button>
               ))}
@@ -329,19 +324,19 @@ export default function Dashboard() {
               <div className="border border-[#1f1f1f] bg-[#0d0d0d] rounded-xl p-6">
                 <div className="flex items-start justify-between mb-4">
                   <div>
-                    <h2 className="text-lg font-bold text-white">{selected.name}</h2>
+                    <h2 className="text-lg font-bold text-white">{selected?.name}</h2>
                     <p className="text-xs text-gray-500 font-mono mt-1">
-                      {AGENT_PUBKEYS[selected.id].slice(0, 8)}...{AGENT_PUBKEYS[selected.id].slice(-6)} · {selected.trades} trades
+                      {selected?.agentPubkey.slice(0, 8)}...{selected?.agentPubkey.slice(-6)} · {selected?.tradeCount ?? 0} trades
                     </p>
                   </div>
-                  <span className="text-2xl font-bold font-mono text-green-400">{selected.apy}%</span>
+                  <span className="text-2xl font-bold font-mono text-green-400">{selected?.apy}%</span>
                 </div>
 
                 <div className="grid grid-cols-3 gap-4 mb-6">
                   {[
-                    { label: "TVL",    value: `$${(selected.tvl / 1e6).toFixed(2)}M` },
-                    { label: "APS",    value: selected.aps.toFixed(4) },
-                    { label: "Trades", value: selected.trades.toString() },
+                    { label: "TVL",    value: `$${((selected?.tvl ?? 0) / 1e6).toFixed(2)}M` },
+                    { label: "APS",    value: (selected?.aps ?? 0).toFixed(4) },
+                    { label: "Trades", value: (selected?.trades ?? 0).toString() },
                   ].map((m) => (
                     <div key={m.label} className="bg-[#111] rounded-lg p-3">
                       <p className="text-[10px] text-gray-600 uppercase tracking-wider mb-1">{m.label}</p>
