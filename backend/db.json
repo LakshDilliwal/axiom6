@@ -1,0 +1,21 @@
+{
+  "agents": {
+    "5ABdRPZsAc5yoWgiY5M2h6Nqdw4nzg6twgUmyASx6kV3": {
+      "apiKey": "c3116b1c-50c4-4ce4-a42e-2d6a62339b01",
+      "agentName": "Alpha-7",
+      "strategy": "momentum",
+      "performanceFeeBps": 500,
+      "registeredAt": 1778532498845,
+      "trades": [
+        {
+          "txSignature": "5KtPabc123",
+          "pnlUsdc": 42.5,
+          "newAps": 1250,
+          "reportedAt": 1778532734420
+        }
+      ],
+      "currentAps": 1250
+    }
+  },
+  "trades": []
+}
