@@ -17,6 +17,7 @@ import {
 import { getAxiom6Program, getRegistryPDA } from "../../lib/axiom6";
 
 const USDC_MINT = new PublicKey("4zMMC9srt5Ri5X14GAgXhaHii3GnPAEERYPJgZJDncDU");
+const API = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:4000";
 
 const STRATEGIES = [
   "Momentum Scalper","Mean Reversion","Arbitrage Hunter",
@@ -36,6 +37,7 @@ export default function Register() {
   const [agentAddress, setAgentAddress] = useState("");
   const [agentPubkeyStr, setAgentPubkeyStr] = useState("");
   const [txSig, setTxSig] = useState("");
+  const [apiKey, setApiKey] = useState("");
 
   const handleDeploy = async () => {
     if (!connected || !wallet || !publicKey || !signTransaction) {
@@ -56,18 +58,14 @@ export default function Register() {
       const program = getAxiom6Program(provider);
       const [registryPDA] = getRegistryPDA();
 
-      // Generate agent keypair — pubkey stored on-chain, secret key returned to user
-      // agent_pubkey is NOT a signer per IDL — no co-signing needed
       const agentKeypair = Keypair.generate();
       const agentPubkey = agentKeypair.publicKey;
 
-      // agent_state PDA — seeds: ["agent", agent_pubkey]
       const [agentStatePDA] = PublicKey.findProgramAddressSync(
         [Buffer.from("agent"), agentPubkey.toBuffer()],
         program.programId
       );
 
-      // Vault ATA — owner is agentStatePDA (PDA), allowOwnerOffCurve = true
       const vaultUsdcAta = await getAssociatedTokenAddress(
         USDC_MINT,
         agentStatePDA,
@@ -78,14 +76,13 @@ export default function Register() {
 
       const tx = new Transaction();
 
-      // Create vault ATA first — program requires it pre-initialized
       const vaultAtaInfo = await connection.getAccountInfo(vaultUsdcAta);
       if (!vaultAtaInfo) {
         tx.add(
           createAssociatedTokenAccountInstruction(
-            publicKey,      // payer
-            vaultUsdcAta,   // new ATA
-            agentStatePDA,  // owner = PDA (not developer!)
+            publicKey,
+            vaultUsdcAta,
+            agentStatePDA,
             USDC_MINT,
             TOKEN_PROGRAM_ID,
             ASSOCIATED_TOKEN_PROGRAM_ID,
@@ -93,15 +90,13 @@ export default function Register() {
         );
       }
 
-      // register_agent instruction
-      // Only signer required: developer (= wallet) — agent_pubkey is readonly
       const registerIx = await (program.methods as any)
         .registerAgent(new BN(feeBps), [USDC_MINT])
         .accounts({
           registry: registryPDA,
           agentState: agentStatePDA,
           developer: publicKey,
-          agentPubkey: agentPubkey,   // readonly account, no signature needed
+          agentPubkey: agentPubkey,
           vaultUsdcAta: vaultUsdcAta,
           systemProgram: SystemProgram.programId,
         })
@@ -113,7 +108,6 @@ export default function Register() {
       tx.recentBlockhash = blockhash;
       tx.feePayer = publicKey;
 
-      // Only the developer wallet signs — no agentKeypair signing needed
       const signed = await signTransaction(tx);
       const signature = await connection.sendRawTransaction(signed.serialize(), {
         skipPreflight: false,
@@ -124,9 +118,29 @@ export default function Register() {
         "confirmed"
       );
 
+      // ── Register in backend DB so it appears on leaderboard & dashboard ──
+      let savedApiKey = "";
+      try {
+        const backendRes = await fetch(`${API}/api/register`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            agentPubkey: agentPubkey.toBase58(),
+            agentName: name.trim(),
+            strategy: strategy,
+            performanceFeeBps: feeBps,
+          }),
+        });
+        const backendData = await backendRes.json();
+        savedApiKey = backendData.apiKey ?? "";
+      } catch (backendErr) {
+        console.warn("Backend register failed (non-fatal):", backendErr);
+      }
+
       setAgentAddress(agentStatePDA.toBase58());
       setAgentPubkeyStr(agentPubkey.toBase58());
       setTxSig(signature);
+      setApiKey(savedApiKey);
       setStatus("success");
     } catch (err: any) {
       console.error("[registerAgent]", err);
@@ -143,10 +157,13 @@ export default function Register() {
 
       {status === "success" ? (
         <div className="border border-[#01696f]/40 bg-[#01696f]/10 rounded-lg p-6 space-y-4">
-          <p className="text-[#01696f] text-sm font-medium text-center">✓ Agent Deployed On-Chain</p>
+          <div className="flex items-center gap-2 justify-center">
+            <span className="w-2 h-2 rounded-full bg-[#01696f] animate-pulse" />
+            <p className="text-[#01696f] text-sm font-medium">Agent Deployed & Registered</p>
+          </div>
 
           <div>
-            <p className="text-gray-400 text-[10px] uppercase tracking-widest mb-1">Agent Pubkey (use this to stake)</p>
+            <p className="text-gray-400 text-[10px] uppercase tracking-widest mb-1">Agent Pubkey</p>
             <p className="text-xs font-mono text-white break-all bg-[#111] rounded p-2">{agentPubkeyStr}</p>
           </div>
 
@@ -154,6 +171,13 @@ export default function Register() {
             <p className="text-gray-400 text-[10px] uppercase tracking-widest mb-1">Agent State PDA</p>
             <p className="text-xs font-mono text-gray-400 break-all bg-[#111] rounded p-2">{agentAddress}</p>
           </div>
+
+          {apiKey && (
+            <div>
+              <p className="text-gray-400 text-[10px] uppercase tracking-widest mb-1">API Key — save this now, shown once</p>
+              <p className="text-xs font-mono text-yellow-400 break-all bg-[#111] rounded p-2 border border-yellow-900/40">{apiKey}</p>
+            </div>
+          )}
 
           <div>
             <p className="text-gray-400 text-[10px] uppercase tracking-widest mb-1">TX Signature</p>
@@ -164,12 +188,20 @@ export default function Register() {
             >{txSig}</a>
           </div>
 
-          <button
-            onClick={() => { setStatus("idle"); setName(""); setTxSig(""); }}
-            className="w-full mt-2 px-4 py-2 border border-[#1f1f1f] text-gray-400 hover:text-white rounded text-xs transition-colors"
-          >
-            Deploy Another
-          </button>
+          <div className="flex gap-2">
+            <a
+              href="/leaderboard"
+              className="flex-1 text-center px-4 py-2 bg-[#01696f] hover:bg-[#01595e] text-white rounded text-xs font-medium transition-colors"
+            >
+              View on Leaderboard →
+            </a>
+            <button
+              onClick={() => { setStatus("idle"); setName(""); setTxSig(""); setApiKey(""); }}
+              className="flex-1 px-4 py-2 border border-[#1f1f1f] text-gray-400 hover:text-white rounded text-xs transition-colors"
+            >
+              Deploy Another
+            </button>
+          </div>
         </div>
       ) : (
         <div className="border border-[#1f1f1f] bg-[#111] rounded-lg p-6 flex flex-col gap-5">

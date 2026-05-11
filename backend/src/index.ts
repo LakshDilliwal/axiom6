@@ -11,26 +11,40 @@ app.use(express.json());
 const DB_PATH = path.join(__dirname, "../db.json");
 
 function readDb() {
-  if (!fs.existsSync(DB_PATH)) fs.writeFileSync(DB_PATH, JSON.stringify({ agents: {}, trades: [] }));
-  return JSON.parse(fs.readFileSync(DB_PATH, "utf-8"));
+  if (!fs.existsSync(DB_PATH)) fs.writeFileSync(DB_PATH, JSON.stringify({ agents: {} }));
+  const raw = JSON.parse(fs.readFileSync(DB_PATH, "utf-8"));
+  // migrate: ensure votes field exists on all agents
+  for (const key of Object.keys(raw.agents ?? {})) {
+    if (!raw.agents[key].votes) raw.agents[key].votes = { likes: 0, dislikes: 0, voters: {} };
+  }
+  return raw;
 }
 function writeDb(data: any) {
   fs.writeFileSync(DB_PATH, JSON.stringify(data, null, 2));
 }
 
-// Register Agent → get API key
+// ── Register Agent ───────────────────────────────────────────────────────────
 app.post("/api/register", (req, res) => {
   const { agentPubkey, agentName, strategy, performanceFeeBps } = req.body;
   if (!agentPubkey || !agentName) return res.status(400).json({ error: "agentPubkey and agentName required" });
   const db = readDb();
   if (db.agents[agentPubkey]) return res.json({ apiKey: db.agents[agentPubkey].apiKey, existing: true });
   const apiKey = uuidv4();
-  db.agents[agentPubkey] = { apiKey, agentName, strategy, performanceFeeBps, registeredAt: Date.now(), trades: [], currentAps: 1.0 };
+  db.agents[agentPubkey] = {
+    apiKey,
+    agentName,
+    strategy,
+    performanceFeeBps,
+    registeredAt: Date.now(),
+    trades: [],
+    currentAps: 1.0,
+    votes: { likes: 0, dislikes: 0, voters: {} },
+  };
   writeDb(db);
   res.json({ apiKey, agentPubkey, message: "Agent registered. Save your API key." });
 });
 
-// Report Trade
+// ── Report Trade ─────────────────────────────────────────────────────────────
 app.post("/api/report-trade", (req, res) => {
   const apiKey = req.headers["x-api-key"] as string;
   const { agentPubkey, txSignature, pnlUsdc, newAps } = req.body;
@@ -45,7 +59,7 @@ app.post("/api/report-trade", (req, res) => {
   res.json({ ok: true, trade });
 });
 
-// Get All Agents
+// ── Get All Agents ────────────────────────────────────────────────────────────
 app.get("/api/agents", (req, res) => {
   const db = readDb();
   const agents = Object.entries(db.agents).map(([pubkey, data]: [string, any]) => ({
@@ -56,11 +70,13 @@ app.get("/api/agents", (req, res) => {
     currentAps: data.currentAps,
     tradeCount: data.trades.length,
     registeredAt: data.registeredAt,
+    likes: data.votes?.likes ?? 0,
+    dislikes: data.votes?.dislikes ?? 0,
   }));
   res.json({ agents });
 });
 
-// Get Single Agent
+// ── Get Single Agent ──────────────────────────────────────────────────────────
 app.get("/api/agents/:pubkey", (req, res) => {
   const db = readDb();
   const agent = db.agents[req.params.pubkey];
@@ -69,17 +85,53 @@ app.get("/api/agents/:pubkey", (req, res) => {
   res.json(safe);
 });
 
-// Health
-app.get("/health", (_, res) => res.json({ ok: true }));
-
-const PORT = process.env.PORT || 4000;
-
-// Get Trade History for a specific agent
-app.get("/api/trades/:pubkey", (req, res) => {
+// ── Like / Dislike ────────────────────────────────────────────────────────────
+// voter = wallet pubkey (passed in body), one vote per wallet per agent
+app.post("/api/agents/:pubkey/vote", (req, res) => {
   const { pubkey } = req.params;
+  const { voter, type } = req.body as { voter: string; type: "like" | "dislike" };
+  if (!voter || !type || !["like", "dislike"].includes(type)) {
+    return res.status(400).json({ error: "voter and type (like|dislike) required" });
+  }
   const db = readDb();
   const agent = db.agents[pubkey];
   if (!agent) return res.status(404).json({ error: "Agent not found" });
+  if (!agent.votes) agent.votes = { likes: 0, dislikes: 0, voters: {} };
+
+  const prev = agent.votes.voters[voter]; // undefined | "like" | "dislike"
+
+  if (prev === type) {
+    // toggle off — remove vote
+    agent.votes[type === "like" ? "likes" : "dislikes"] = Math.max(0, agent.votes[type === "like" ? "likes" : "dislikes"] - 1);
+    delete agent.votes.voters[voter];
+  } else {
+    // remove old vote if switching
+    if (prev) {
+      agent.votes[prev === "like" ? "likes" : "dislikes"] = Math.max(0, agent.votes[prev === "like" ? "likes" : "dislikes"] - 1);
+    }
+    // add new vote
+    agent.votes[type === "like" ? "likes" : "dislikes"] += 1;
+    agent.votes.voters[voter] = type;
+  }
+
+  writeDb(db);
+  res.json({
+    likes: agent.votes.likes,
+    dislikes: agent.votes.dislikes,
+    myVote: agent.votes.voters[voter] ?? null,
+  });
+});
+
+// ── Trade History ─────────────────────────────────────────────────────────────
+app.get("/api/trades/:pubkey", (req, res) => {
+  const db = readDb();
+  const agent = db.agents[req.params.pubkey];
+  if (!agent) return res.status(404).json({ error: "Agent not found" });
   res.json({ trades: agent.trades ?? [], total: (agent.trades ?? []).length });
 });
+
+// ── Health ────────────────────────────────────────────────────────────────────
+app.get("/health", (_, res) => res.json({ ok: true }));
+
+const PORT = process.env.PORT || 4000;
 app.listen(PORT, () => console.log(`Axiom6 API running on port ${PORT}`));
