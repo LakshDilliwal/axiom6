@@ -11,11 +11,13 @@ app.use(express.json());
 const DB_PATH = path.join(__dirname, "../db.json");
 
 function readDb() {
-  if (!fs.existsSync(DB_PATH)) fs.writeFileSync(DB_PATH, JSON.stringify({ agents: {} }));
+  if (!fs.existsSync(DB_PATH)) fs.writeFileSync(DB_PATH, JSON.stringify({ agents: {}, stakes: [] }));
   const raw = JSON.parse(fs.readFileSync(DB_PATH, "utf-8"));
+  if (!raw.stakes) raw.stakes = [];
   for (const key of Object.keys(raw.agents ?? {})) {
     if (!raw.agents[key].votes) raw.agents[key].votes = { likes: 0, dislikes: 0, voters: {} };
     if (!raw.agents[key].ownerWallet) raw.agents[key].ownerWallet = null;
+    if (!raw.agents[key].trades) raw.agents[key].trades = [];
   }
   return raw;
 }
@@ -39,6 +41,7 @@ app.post("/api/register", (req, res) => {
     registeredAt: Date.now(),
     trades: [],
     currentAps: 1.0,
+    tvlUsdc: 0,
     votes: { likes: 0, dislikes: 0, voters: {} },
   };
   writeDb(db);
@@ -53,7 +56,6 @@ app.post("/api/report-trade", (req, res) => {
   const db = readDb();
   const agent = db.agents[agentPubkey];
   if (!agent || agent.apiKey !== apiKey) return res.status(403).json({ error: "Invalid API key" });
-  // verify_only is a no-op used by the frontend to check key validity
   if (txSignature === "verify_only") return res.json({ ok: true, verified: true });
   const trade = { txSignature, pnlUsdc, newAps: newAps ?? null, reportedAt: Date.now() };
   agent.trades.push(trade);
@@ -71,7 +73,8 @@ app.get("/api/agents", (req, res) => {
     strategy: data.strategy,
     performanceFeeBps: data.performanceFeeBps,
     currentAps: data.currentAps,
-    tradeCount: data.trades.length,
+    tradeCount: (data.trades || []).length,
+    tvlUsdc: data.tvlUsdc || 0,
     registeredAt: data.registeredAt,
     ownerWallet: data.ownerWallet ?? null,
     likes: data.votes?.likes ?? 0,
@@ -93,7 +96,8 @@ app.get("/api/my-agents", (req, res) => {
       strategy: data.strategy,
       performanceFeeBps: data.performanceFeeBps,
       currentAps: data.currentAps,
-      tradeCount: data.trades.length,
+      tradeCount: (data.trades || []).length,
+      tvlUsdc: data.tvlUsdc || 0,
       registeredAt: data.registeredAt,
       likes: data.votes?.likes ?? 0,
       dislikes: data.votes?.dislikes ?? 0,
@@ -107,7 +111,7 @@ app.get("/api/agents/:pubkey", (req, res) => {
   const agent = db.agents[req.params.pubkey];
   if (!agent) return res.status(404).json({ error: "Agent not found" });
   const { apiKey, ...safe } = agent;
-  res.json(safe);
+  res.json({ ...safe, agentPubkey: req.params.pubkey });
 });
 
 // ── Like / Dislike ────────────────────────────────────────────────────────────
@@ -142,6 +146,41 @@ app.get("/api/trades/:pubkey", (req, res) => {
   const agent = db.agents[req.params.pubkey];
   if (!agent) return res.status(404).json({ error: "Agent not found" });
   res.json({ trades: agent.trades ?? [], total: (agent.trades ?? []).length });
+});
+
+// ── Stats ─────────────────────────────────────────────────────────────────────
+app.get("/api/stats", (req, res) => {
+  const db = readDb();
+  const agents = Object.values(db.agents) as any[];
+  res.json({
+    totalAgents: agents.length,
+    totalTrades: agents.reduce((s: number, a: any) => s + (a.trades?.length || 0), 0),
+    totalTvlUsdc: agents.reduce((s: number, a: any) => s + (a.tvlUsdc || 0), 0),
+    topAps: agents.length ? Math.max(...agents.map((a: any) => a.currentAps || 0)) : 0,
+  });
+});
+
+// ── Stake ─────────────────────────────────────────────────────────────────────
+app.post("/api/stake", (req, res) => {
+  const { wallet, agentPubkey, amountUsdc } = req.body;
+  if (!wallet || !agentPubkey || !amountUsdc)
+    return res.status(400).json({ error: "Missing fields" });
+  const db = readDb();
+  const agent = db.agents[agentPubkey];
+  if (!agent) return res.status(404).json({ error: "Agent not found" });
+  const shares = Number(amountUsdc) / (agent.currentAps || 1);
+  db.stakes.push({ wallet, agentPubkey, amountUsdc: Number(amountUsdc), shares, stakedAt: Date.now() });
+  agent.tvlUsdc = (agent.tvlUsdc || 0) + Number(amountUsdc);
+  writeDb(db);
+  res.json({ success: true, shares });
+});
+
+// ── Portfolio ─────────────────────────────────────────────────────────────────
+app.get("/api/portfolio", (req, res) => {
+  const wallet = req.query.wallet as string;
+  if (!wallet) return res.status(400).json({ error: "wallet required" });
+  const db = readDb();
+  res.json({ stakes: db.stakes.filter((s: any) => s.wallet === wallet) });
 });
 
 // ── Health ────────────────────────────────────────────────────────────────────

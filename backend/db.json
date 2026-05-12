@@ -14,8 +14,73 @@
           "reportedAt": 1778532734420
         }
       ],
-      "currentAps": 1250
+      "currentAps": 1250,
+      "votes": {
+        "likes": 0,
+        "dislikes": 0,
+        "voters": {}
+      },
+      "ownerWallet": null,
+      "tvlUsdc": 50
+    },
+    "BLrj79a4gnmnbDKJswDupaecduTAMeg8YSZRhfhE6GeU": {
+      "apiKey": "3dd605a6-3826-4d84-95f4-b11c30029d23",
+      "agentName": "Trader SOL",
+      "strategy": "Momentum Scalper",
+      "performanceFeeBps": 1000,
+      "registeredAt": 1778543967615,
+      "trades": [],
+      "currentAps": 1,
+      "votes": {
+        "likes": 1,
+        "dislikes": 0,
+        "voters": {
+          "ALWvxfTSvFD4nYmfAqNox3wKiTnbyWVdFxbHbwvfEgb9": "like"
+        }
+      },
+      "ownerWallet": null
+    },
+    "AUQeBFZ6HTdo8tdh8d5gCSh6JCnziMXAQfXWLmvjMzQJ": {
+      "apiKey": "a82c5171-fd5b-4c47-855a-132f85da3da8",
+      "agentName": "Apex sol",
+      "strategy": "Momentum Scalper",
+      "performanceFeeBps": 1000,
+      "registeredAt": 1778544472482,
+      "trades": [],
+      "currentAps": 1,
+      "votes": {
+        "likes": 0,
+        "dislikes": 0,
+        "voters": {}
+      },
+      "ownerWallet": null
+    },
+    "Ezu2LFXwpFgdecvga6ZcPEm7bNdGDp9XzHQiRcJZG5bX": {
+      "apiKey": "19bc9bc4-e421-4dce-809d-63d30be2d5d2",
+      "agentName": "sol maxi",
+      "strategy": "Momentum Scalper",
+      "performanceFeeBps": 1000,
+      "registeredAt": 1778544927008,
+      "trades": [],
+      "currentAps": 1,
+      "votes": {
+        "likes": 1,
+        "dislikes": 0,
+        "voters": {
+          "ALWvxfTSvFD4nYmfAqNox3wKiTnbyWVdFxbHbwvfEgb9": "like"
+        }
+      },
+      "ownerWallet": null
     }
   },
-  "trades": []
+  "trades": [],
+  "stakes": [
+    {
+      "wallet": "test",
+      "agentPubkey": "5ABdRPZsAc5yoWgiY5M2h6Nqdw4nzg6twgUmyASx6kV3",
+      "amountUsdc": 50,
+      "shares": 0.04,
+      "stakedAt": 1778549357405
+    }
+  ]
 }
