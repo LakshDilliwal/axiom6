@@ -14,8 +14,8 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
     <html lang="en" className={`dark ${GeistSans.variable} ${GeistMono.variable}`}>
       <body suppressHydrationWarning className="bg-[#0a0a0a] text-white min-h-screen selection:bg-[#01696f]/30 selection:text-white">
         <ConnectionProvider endpoint={DEVNET_RPC_URL}>
-          {/* Pass empty wallets array — Phantom/Solflare/Backpack register themselves via Wallet Standard */}
-          <WalletProvider wallets={[]} autoConnect>
+          {/* autoConnect disabled — causes stuck "Connecting..." on non-localhost origins (WSL IP) */}
+          <WalletProvider wallets={[]} autoConnect={false}>
             <WalletModalProvider>
               <Navbar />
               <div className="pt-14">
