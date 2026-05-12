@@ -10,6 +10,7 @@ export function Navbar() {
     { href: "/dashboard", label: "Dashboard" },
     { href: "/leaderboard", label: "Leaderboard" },
     { href: "/register", label: "Deploy Agent" },
+    { href: "/my-agent", label: "My Agent" },
     { href: "/docs", label: "Docs" },
     { href: "/faq", label: "FAQ" },
   ];
