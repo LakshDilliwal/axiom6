@@ -2,7 +2,7 @@
 import { useMemo } from "react";
 import { ConnectionProvider, WalletProvider } from "@solana/wallet-adapter-react";
 import { WalletModalProvider } from "@solana/wallet-adapter-react-ui";
-import { PhantomWalletAdapter } from "@solana/wallet-adapter-wallets";
+import { PhantomWalletAdapter, SolflareWalletAdapter, BackpackWalletAdapter } from "@solana/wallet-adapter-wallets";
 import { Toaster } from "react-hot-toast";
 import { DEVNET_RPC_URL } from "../lib/constants";
 import { GeistSans } from "geist/font/sans";
@@ -12,7 +12,11 @@ import "./globals.css";
 import "@solana/wallet-adapter-react-ui/styles.css";
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
-  const wallets = useMemo(() => [new PhantomWalletAdapter()], []);
+  const wallets = useMemo(() => [
+    new PhantomWalletAdapter(),
+    new SolflareWalletAdapter(),
+    new BackpackWalletAdapter(),
+  ], []);
   return (
     <html lang="en" className={`dark ${GeistSans.variable} ${GeistMono.variable}`}>
       <body suppressHydrationWarning className="bg-[#0a0a0a] text-white min-h-screen selection:bg-[#01696f]/30 selection:text-white">
