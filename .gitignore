@@ -5,3 +5,6 @@ node_modules/
 .env.local
 test-ledger/
 **/*keypair*.json
+target/
+node_modules/
+.anchor/
